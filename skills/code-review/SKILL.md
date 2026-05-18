@@ -12,18 +12,20 @@ Review the staged diff (`git diff --staged`) by fanning out work to 5 parallel s
 Before spawning subagents, **discover** the rule sources for this review. Do not hard-code rules into the charters — the rule files are the source of truth.
 
 1. Discover and load (in this order, skip missing):
-   - `AGENTS.md` at the repo root, plus any nested `AGENTS.md` it references.
    - `CLAUDE.md` at the repo root, plus any nested `CLAUDE.md` it references.
+   - `AGENTS.md` at the repo root, plus any nested `AGENTS.md` it references.
    - All `~/.claude/rules/*.md` (user's global rules).
    - All `docs/rules/*.md` in the repo.
-2. Build a **rule manifest** capturing which sources loaded and which were missing. Both are surfaced in the final report header so the user knows what informed the review.
-3. Run `git diff --staged --stat` to see the scope. If the diff is empty, stop and report "no staged changes".
+2. Build a **rule manifest** capturing which sources loaded and which were missing. Both are surfaced in the final report header so the user knows what informed the review. If zero rule files load, fall back to universal mode — review against correctness / security / performance principles only, and tag every finding's `rule_source` as `"universal"`.
+3. Run `git diff --staged --stat` to see the scope. If the diff is empty, stop and report "no staged changes". **Filter out non-reviewable paths**: binary files, lockfiles (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`, `*.lock`), generated / minified output (`*.min.js`, `*.min.css`, `dist/`, `build/`, `.next/`, `out/`), snapshot fixtures (`*.snap`), and vendored directories. These are out of scope — do not pass their hunks to subagents.
 
 Pass the staged diff, the loaded rule files (verbatim), and the manifest to every subagent as context. Do **not** make subagents re-read rule files or re-derive rules from memory.
 
 ## Step 1 — Spawn 5 parallel subagents (single message, multiple Task tool calls)
 
-Each subagent receives: the full staged diff, the rule files inline, the manifest, and its specific charter. Each subagent MUST return a JSON array of findings — nothing else.
+**Branch — tiny diffs:** If the filtered diff touches ≤3 files OR <100 changed lines, skip the fan-out and do a single inline pass covering all 5 charters yourself. Still produce the same severity-bucketed output with snippets and the manifest header. Subagent overhead isn't worth it on small diffs.
+
+Otherwise, each subagent receives: the full staged diff, the rule files inline, the manifest, and its specific charter. Each subagent MUST return a JSON array of findings — nothing else.
 
 **Common prelude (prepend to every subagent prompt):**
 
@@ -87,22 +89,15 @@ Owns: style / naming concerns the linter can't catch, and duplication across sli
 
 Owns: how this diff interacts with the rest of the system at runtime and at ship time.
 
-- Localization: i18n called where keys are used; user-facing error messages understandable.
-- Translation keys: new keys referenced but missing from locale files; removed keys still referenced.
-- Query keys via functions (not raw strings) for cache invalidation.
-- Forms: page preventer and confirm-modal for unsaved changes.
-- Dynamic imports for anything that can reasonably be lazy.
-- CSS-first for visual concerns; no JS where CSS suffices.
-- `caniuse` check on new CSS/JS features (no polyfills).
-- Components auto-destroyed via `_addComponent` lifecycle (or project equivalent).
-- API methods bubbling vs swallowing errors per project convention.
-- Deployment risk: feature flags, env vars, migration order, backwards compatibility of changed payloads.
+- Apply whatever integration rules the loaded files prescribe — localization / i18n discipline, cache-key / query-key conventions, form-abandonment safeguards, lazy-loading expectations, CSS-vs-JS preferences, browser-support policy, component lifecycle ownership, error-bubbling conventions, etc. Cite the rule file in `rule_source`. Do not invent integration rules that aren't in the loaded sources.
+- **Translation-key lifecycle** (universal where i18n exists): new keys referenced but missing from locale files, removed keys still referenced elsewhere, hard-coded user-facing strings that should be translated.
+- **Deployment risk** (universal): feature flags, env vars, migration order, backwards-incompatible payload changes, breaking changes to public contracts that callers in the diff don't update.
 
 (Performance / parallelism concerns — including `Promise.all` for parallelizable async — belong to Subagent 5.)
 
 ### Subagent 5 — Performance & Complexity
 
-Owns: **strict algorithmic complexity** — clean-looking code that hides O(n²) or worse, plus avoidable sequential I/O. Inspired by the "O(n²) bug that looked like clean code" failure mode: nested array scans wrapped in `.filter` / `.find` / `.includes` read like prose but multiply at scale.
+Owns: **strict algorithmic complexity** — clean-looking code that hides O(n²) or worse, plus avoidable sequential I/O. Nested array scans wrapped in `.filter` / `.find` / `.includes` read like prose but multiply at scale.
 
 Signals to flag (each P0/P1 finding must include a one-line complexity callout, e.g. `O(n*m) → O(n+m)`):
 
@@ -117,7 +112,7 @@ Signals to flag (each P0/P1 finding must include a one-line complexity callout, 
 - **Chained passes** — `.filter().map().find()` over a large array where a single pass or early exit would do.
 - **`.sort()` inside render or on every event** — sort once, memoize, or sort on write.
 - **Repeated heavy construction inside a loop** — `new RegExp(...)`, `JSON.parse(JSON.stringify(...))`, `new Date(...)` parsed from a constant. Hoist outside.
-- **Sequential `await` in a loop** when iterations are independent → use `Promise.all` / `Promise.allSettled`. (Moved here from integration concerns — it is a complexity / latency multiplier.)
+- **Sequential `await` in a loop** when iterations are independent → use `Promise.all` / `Promise.allSettled`.
 - **N+1** API or DB calls — one fetch per item where one batched fetch exists.
 - **Recursive set/tree building without memoization** when input size is non-trivial.
 - **Accidentally quadratic string building** — repeated `str += ...` over large n where chunks + `join` would be linear in practice.
@@ -139,7 +134,7 @@ After all 5 subagents return, parse their JSON arrays and merge:
 
 ## Step 3 — Output inline
 
-Produce a single markdown report directly in the response (NOT a file). Render each finding with before/after code snippets when present:
+Produce a single markdown report. Render each finding with before/after code snippets when present:
 
 ````markdown
 # Code Review — <N> findings
@@ -194,8 +189,5 @@ Use the appropriate language hint in fences (`ts`, `tsx`, `js`, `css`, `twig`, e
 - Do not modify any code in the repo — review only.
 - Do not invoke other slash commands.
 - Do not restate or paraphrase the loaded rule files inside the report. Cite them by filename via `rule_source`.
-- **Scope = staged diff hunks only.** Every finding's `file:line` must point at a line the diff added or modified. Do not flag adjacent / pre-existing code, and do not suggest "while you're here" cleanups. Reviewing means evaluating *this change*, not auditing the file.
-- **Don't duplicate the linter.** Skip anything covered by eslint / stylelint / tsc. CI catches those.
+- Every finding's `file:line` must point at a line the diff added or modified (the prelude enforces this for subagents; the orchestrator should drop any finding that violates it during merge).
 - If a subagent fails or returns invalid JSON, note it in the Summary and continue with the rest.
-- Cap each subagent at 25 findings; if it hits the cap, surface that in the Summary.
-- For tiny diffs (≤3 files OR <100 lines changed), skip the fan-out and do a single inline pass covering all **5 charters** yourself — still produce the same severity-bucketed output with snippets and the manifest header.
