@@ -194,6 +194,8 @@ Use the appropriate language hint in fences (`ts`, `tsx`, `js`, `css`, `twig`, e
 - Do not modify any code in the repo — review only.
 - Do not invoke other slash commands.
 - Do not restate or paraphrase the loaded rule files inside the report. Cite them by filename via `rule_source`.
+- **Scope = staged diff hunks only.** Every finding's `file:line` must point at a line the diff added or modified. Do not flag adjacent / pre-existing code, and do not suggest "while you're here" cleanups. Reviewing means evaluating *this change*, not auditing the file.
+- **Don't duplicate the linter.** Skip anything covered by eslint / stylelint / tsc. CI catches those.
 - If a subagent fails or returns invalid JSON, note it in the Summary and continue with the rest.
 - Cap each subagent at 25 findings; if it hits the cap, surface that in the Summary.
 - For tiny diffs (≤3 files OR <100 lines changed), skip the fan-out and do a single inline pass covering all **5 charters** yourself — still produce the same severity-bucketed output with snippets and the manifest header.
