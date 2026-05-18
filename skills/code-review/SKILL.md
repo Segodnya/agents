@@ -28,6 +28,10 @@ Each subagent receives: the full staged diff, the rule files inline, the manifes
 **Common prelude (prepend to every subagent prompt):**
 
 > Apply the loaded rule files as the **single source of truth** for style / architecture / naming / localization / integration / deployment norms. Do NOT re-derive rules from memory or training data. Flag a violation only if it is either (a) traceable to a specific line in the loaded rules, or (b) a universal correctness / security / performance principle independent of project style. When citing a rule, reference its file name so the user can verify.
+>
+> **Diff-scope only.** Review ONLY lines that appear in the staged diff (added or modified hunks). Do not flag adjacent code, pre-existing violations in the same file, or "while you're here" cleanups. If the diff doesn't touch a line, it's out of scope — even if it violates a rule. Exception: a diff-line that *depends on* broken adjacent code (e.g. new code calls into a buggy existing function the diff also touches) is fair game.
+>
+> **Trust the linter.** Do not flag anything the project's eslint / stylelint / tsc config already covers — assume CI catches it. If a rule has a corresponding lint rule, skip it. Focus on what the linter can't see or suggest which rule should team add to their config.
 
 Finding schema:
 
