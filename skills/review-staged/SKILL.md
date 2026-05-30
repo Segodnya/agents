@@ -1,16 +1,16 @@
 ---
-name: code-review
-description: Parallel code review of the staged diff with an adversarial verification pass, severity buckets and code-snippet fixes. Findings are confirmed against the real files before they reach you — refuted ones are dropped. Inline output only — no file writes, no plan mode, no clarifying questions. Use when the user asks for a code review, says "ревью", "review staged", or wants safety/architecture/style/integration/performance audit of pending changes.
+name: review-staged
+description: Parallel review of the STAGED git diff with an adversarial verification pass, severity buckets and code-snippet fixes. Findings are confirmed against the real files before they reach you — refuted ones are dropped. Inline read-only by default; applies confirmed P0/P1 only when you explicitly ask (`review-staged fix` or «исправь/применить» after the report). NOT the built-in `/code-review` (which reviews the whole branch and has `--fix`/`ultra`) — this one is scoped to the staged diff and rule-driven. Use when the user says «ревью стейджа», «review staged», `/review-staged`, or wants a safety/architecture/style/integration/performance audit of the staged changes against the repo's rule files.
 ---
 
-# Code Review
+# review-staged — adversarial review of the staged diff
 
 Two waves over the staged diff (`git diff --staged`):
 
 - **FIND** — 5 parallel finder subagents see the diff alone and produce *candidates*. A broad, cheap net: they over-produce on purpose.
 - **VERIFY** — one skeptic subagent reads the real files and tries to *refute* each candidate. Only confirmed ones survive.
 
-The finders and the critic are different agents on purpose — the critic has the file context the diff-only finders lack. Output INLINE — no file writes, no plan mode, no clarifying questions.
+The finders and the critic are different agents on purpose — the critic has the file context the diff-only finders lack. Output INLINE — no plan mode, no clarifying questions. **Read-only by default**; writing files happens only in the opt-in Step 5 when the user explicitly asks to apply fixes.
 
 ```
 Step 0  GROUND   load rules + manifest, filter the diff
@@ -18,6 +18,7 @@ Step 1  FIND     5 finders, diff-only → candidates
 Step 2  MERGE    dedup + namespace ids
 Step 3  VERIFY   one skeptic reads files, refutes → keep confirmed
 Step 4  OUTPUT   confirmed findings only, each with its evidence
+Step 5  APPLY    (opt-in) edit confirmed P0/P1 only when the user asks
 ```
 
 ## Step 0 — Ground
@@ -185,9 +186,23 @@ Same shape as P0.
 
 Use the right language hint in fences (`ts`, `tsx`, `css`, `twig`, …). Omit empty buckets. If zero findings survive, output `Code Review — no confirmed issues in <N> files / <M> lines.` plus the candidate tally and manifest header.
 
+After the report, when there is ≥1 confirmed P0/P1, end with one line offering to apply: `Применить подтверждённые P0/P1? (review-staged fix)`. Do not apply now — wait for the user.
+
+## Step 5 — Apply (opt-in)
+
+Triggered **only** by an explicit user request after the report: `review-staged fix`, or a reply like «исправь», «применить», «накати фиксы». Never apply in the same turn as the report, and never without this signal.
+
+When triggered:
+
+1. Apply **only confirmed** findings (those that survived Step 3), and only **P0/P1** — skip P2 unless the user names them.
+2. For each, `Edit` the file using the skeptic-validated `snippet_before` → `snippet_after`. If `snippet_before` no longer matches the file (it drifted since the review), skip that finding and report it as stale rather than guessing.
+3. **Surgical only** — change exactly what the finding describes. No adjacent cleanups, no reformatting, no renames «заодно».
+4. After editing, list what changed (`file:line` per applied finding) and what was skipped (stale / P2 / refuted).
+5. Honor git rules: do **NOT** `git add` / `git commit`, do **NOT** run `build`. Leave staging to the user.
+
 ## Hard constraints
 
-- INLINE ONLY: no file writes, no plan mode, no `ExitPlanMode`/`AskUserQuestion`, no other slash commands, no code changes.
+- INLINE: no plan mode, no `ExitPlanMode`/`AskUserQuestion`, no other slash commands. **Read-only by default — no file writes during Steps 0–4.** Code changes happen only in the opt-in Step 5, after an explicit user request, and only on confirmed P0/P1.
 - **Never show an unverified candidate as a finding** — only `confirmed` verdicts reach the report. The skeptic must actually `Read`/`Grep` files; re-reading the diff isn't verification. If the skeptic fails or returns invalid JSON: note it in the Summary and tag any shown candidates `⚠ UNVERIFIED` so the user knows none were confirmed.
 - Every finding's `file:line` must point at a diff-touched line; drop violators on merge.
 - Cite rules by filename via `rule_source`; never restate rule files in the report.

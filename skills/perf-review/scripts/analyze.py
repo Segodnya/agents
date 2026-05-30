@@ -199,7 +199,7 @@ def analyze_sessions(projects_dir: str, cutoff_ts: int) -> dict:
                     for c in content:
                         if isinstance(c, dict) and c.get("type") == "text":
                             disp += c.get("text", "")
-                if "/code-review" in disp and session_id:
+                if "/review-staged" in disp and session_id:
                     code_review_followups[session_id].append((ts or 0, "invoked"))
             elif t == "tool_use":
                 # newer formats may surface tool_use at top level
