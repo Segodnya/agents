@@ -1,44 +1,52 @@
 ---
 name: code-review
-description: Parallel code review of the staged diff with severity buckets and code-snippet fixes. Inline output only — no file writes, no plan mode, no clarifying questions. Use when the user asks for a code review, says "ревью", "review staged", or wants safety/architecture/style/integration/performance audit of pending changes.
+description: Parallel code review of the staged diff with an adversarial verification pass, severity buckets and code-snippet fixes. Findings are confirmed against the real files before they reach you — refuted ones are dropped. Inline output only — no file writes, no plan mode, no clarifying questions. Use when the user asks for a code review, says "ревью", "review staged", or wants safety/architecture/style/integration/performance audit of pending changes.
 ---
 
 # Code Review
 
-Review the staged diff (`git diff --staged`) by fanning out work to 5 parallel subagents via the Task tool. Output INLINE in this response — no file writes, no plan mode, no clarifying questions first.
+Two waves over the staged diff (`git diff --staged`):
 
-## Step 0 — Ground the review
+- **FIND** — 5 parallel finder subagents see the diff alone and produce *candidates*. A broad, cheap net: they over-produce on purpose.
+- **VERIFY** — one skeptic subagent reads the real files and tries to *refute* each candidate. Only confirmed ones survive.
 
-Before spawning subagents, **discover** the rule sources for this review. Do not hard-code rules into the charters — the rule files are the source of truth.
+The finders and the critic are different agents on purpose — the critic has the file context the diff-only finders lack. Output INLINE — no file writes, no plan mode, no clarifying questions.
 
-1. Discover and load (in this order, skip missing):
-   - `CLAUDE.md` at the repo root, plus any nested `CLAUDE.md` it references.
-   - `AGENTS.md` at the repo root, plus any nested `AGENTS.md` it references.
-   - All `~/.claude/rules/*.md` (user's global rules).
-   - All `docs/rules/*.md` in the repo.
-2. Build a **rule manifest** capturing which sources loaded and which were missing. Both are surfaced in the final report header so the user knows what informed the review. If zero rule files load, fall back to universal mode — review against correctness / security / performance principles only, and tag every finding's `rule_source` as `"universal"`.
-3. Run `git diff --staged --stat` to see the scope. If the diff is empty, stop and report "no staged changes". **Filter out non-reviewable paths**: binary files, lockfiles (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`, `*.lock`), generated / minified output (`*.min.js`, `*.min.css`, `dist/`, `build/`, `.next/`, `out/`), snapshot fixtures (`*.snap`), and vendored directories. These are out of scope — do not pass their hunks to subagents.
+```
+Step 0  GROUND   load rules + manifest, filter the diff
+Step 1  FIND     5 finders, diff-only → candidates
+Step 2  MERGE    dedup + namespace ids
+Step 3  VERIFY   one skeptic reads files, refutes → keep confirmed
+Step 4  OUTPUT   confirmed findings only, each with its evidence
+```
 
-Pass the staged diff, the loaded rule files (verbatim), and the manifest to every subagent as context. Do **not** make subagents re-read rule files or re-derive rules from memory.
+## Step 0 — Ground
 
-## Step 1 — Spawn 5 parallel subagents (single message, multiple Task tool calls)
+Discover the rule sources before spawning anything — the rule files are the source of truth, never hard-code rules into the charters.
 
-**Branch — tiny diffs:** If the filtered diff touches ≤3 files OR <100 changed lines, skip the fan-out and do a single inline pass covering all 5 charters yourself. Still produce the same severity-bucketed output with snippets and the manifest header. Subagent overhead isn't worth it on small diffs.
+1. Load (in order, skip missing): `CLAUDE.md` at repo root + any nested `CLAUDE.md` it references; `AGENTS.md` + nested; all `~/.claude/rules/*.md`; all `docs/rules/*.md`.
+2. Build a **manifest** of which sources loaded and which were missing — both go in the report header. If zero rule files load, fall back to universal mode (correctness / security / performance only) and tag every `rule_source` as `"universal"`.
+3. Run `git diff --staged --stat`. If empty, stop and report "no staged changes". **Filter out non-reviewable paths** — binary files, lockfiles (`*.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`), generated/minified output (`*.min.*`, `dist/`, `build/`, `.next/`, `out/`), snapshots (`*.snap`), vendored dirs. Don't pass their hunks to anyone.
 
-Otherwise, each subagent receives: the full staged diff, the rule files inline, the manifest, and its specific charter. Each subagent MUST return a JSON array of findings — nothing else.
+Pass the staged diff, the rule files (verbatim), and the manifest to every subagent. Don't make subagents re-read files or re-derive rules from memory.
 
-**Common prelude (prepend to every subagent prompt):**
+## Step 1 — FIND
 
-> Apply the loaded rule files as the **single source of truth** for style / architecture / naming / localization / integration / deployment norms. Do NOT re-derive rules from memory or training data. Flag a violation only if it is either (a) traceable to a specific line in the loaded rules, or (b) a universal correctness / security / performance principle independent of project style. When citing a rule, reference its file name so the user can verify.
->
-> **Diff-scope only.** Review ONLY lines that appear in the staged diff (added or modified hunks). Do not flag adjacent code, pre-existing violations in the same file, or "while you're here" cleanups. If the diff doesn't touch a line, it's out of scope — even if it violates a rule. Exception: a diff-line that *depends on* broken adjacent code (e.g. new code calls into a buggy existing function the diff also touches) is fair game.
->
-> **Trust the linter.** Do not flag anything the project's eslint / stylelint / tsc config already covers — assume CI catches it. If a rule has a corresponding lint rule, skip it. Focus on what the linter can't see or suggest which rule should team add to their config.
+Spawn 5 finders in a single message (multiple Task calls). Each gets the diff, the rule files inline, the manifest, and its charter. Each returns a JSON array of **candidates** — nothing else. Candidates are unverified, so finders should report anything plausible rather than self-censor; Step 3 filters the noise.
 
-Finding schema:
+**Tiny-diff branch:** if the filtered diff touches ≤3 files OR <100 changed lines, skip the fan-out — do one inline pass covering all 5 charters, then run Step 3's verification inline yourself (open the touched files, refute, keep confirmed). Same output format. The fan-out isn't worth it on small diffs, but the verify discipline still is.
+
+**Common prelude — prepend to every finder prompt:**
+
+> - **Rules = the loaded files only.** Don't re-derive rules from memory or training. Flag a violation only if it's (a) traceable to a specific line in the loaded rules, or (b) a universal correctness / security / performance principle. Cite the rule's file name.
+> - **Diff-scope only.** Review only added/modified hunks. No adjacent code, no pre-existing violations, no "while you're here" cleanups. Exception: a diff-line that depends on broken adjacent code the diff also touches.
+> - **Trust the linter.** Skip anything eslint / stylelint / tsc already covers — assume CI catches it. Focus on what the linter can't see.
+
+Candidate schema:
 
 ```json
 {
+  "id": "c1",
   "severity": "P0" | "P1" | "P2",
   "file": "path/to/file.ts",
   "line": 123,
@@ -46,62 +54,42 @@ Finding schema:
   "rule_source": "architecture.md | code-style.md | universal | ...",
   "snippet_before": "exact code from the diff that has the problem",
   "snippet_after": "concrete fixed version of the snippet",
-  "fix": "one-sentence rationale for the fix"
+  "fix": "one-sentence rationale for the fix",
+  "assumption": "the unverified assumption this rests on, e.g. 'user can be null here'"
 }
 ```
 
-`snippet_before` / `snippet_after` are mandatory for P0 and P1 findings. For P2 they are optional (omit if a one-line rename or formatting tweak makes the fix obvious). `rule_source` is mandatory — use `"universal"` for principles not tied to a loaded rule file.
+`snippet_before` / `snippet_after` mandatory for P0/P1, optional for P2 (omit when a rename or formatting tweak makes the fix obvious). `assumption` is **mandatory** — it names the one thing the skeptic must check against the real files. A candidate whose assumption can't be stated is too vague to verify; don't report it.
 
-Severity guide:
+Severity:
 
-- **P0** — bug, regression, security issue, data loss, type error, broken build, quadratic-or-worse on a path that can hit large n. Must fix before merge.
-- **P1** — architecture violation, integration risk, missing edge-case handling, quadratic on bounded-but-growable input, rule violation that will cause pain. Should fix.
-- **P2** — style, naming, duplication, micro-inefficiency, minor cleanup, drift signal. Nice to fix.
+- **P0** — bug, regression, security issue, data loss, type error, broken build, quadratic-or-worse on a large-n path. Must fix before merge.
+- **P1** — architecture violation, integration risk, missing edge case, quadratic on bounded-but-growable input, rule violation that will cause pain. Should fix.
+- **P2** — style, naming, duplication, micro-inefficiency, drift. Nice to fix.
 
-### Subagent 1 — Safety & Correctness
+### Finder 1 — Safety & Correctness
 
-Owns: correctness and security primitives that the rule files don't usually cover.
+Correctness/security the rule files don't cover: logic bugs, null/undefined, off-by-one, races, unhandled rejections, async/await misuse, type errors, unsafe casts, XSS/injection, secrets in code, unsafe `dangerouslySetInnerHTML`, unvalidated input crossing trust boundaries, broken contracts (changed return types without updating callers), edge cases (empty arrays, long unbroken strings, overflow, missing fallbacks).
 
-- Logic bugs, null/undefined, off-by-one, race conditions, unhandled promise rejections, async/await misuse.
-- Type errors and unsafe casts.
-- Security: XSS, injection, secrets in code, unsafe `dangerouslySetInnerHTML`, unvalidated user input crossing trust boundaries.
-- Broken contracts: changed return types without updating callers, breaking API changes.
-- Edge cases: empty arrays, long strings without spaces, overflow, missing fallbacks.
+### Finder 2 — Architecture
 
-### Subagent 2 — Architecture Compliance
+Layer / slice / module boundaries as defined in the loaded rules. Flag structural choices in the diff that contradict a loaded rule; cite the file in `rule_source`. Don't invent rules not in the sources.
 
-Owns: layer / slice / module boundaries as defined in the loaded rules.
+### Finder 3 — Style, Naming & Duplication
 
-- Apply whatever architecture rules the loaded files (AGENTS.md, CLAUDE.md, `architecture.md`) prescribe — FSD layer direction, public-API discipline, mixins policy, mapper placement, view-class conventions, compound-component layout, `types/` and `constants/` policies, lifecycle ownership, etc.
-- Flag any structural choice in the diff that contradicts a loaded rule. Cite the rule file in `rule_source`.
-- Do not invent architecture rules that aren't in the loaded sources.
+Style/naming the linter can't catch, per the loaded rules. Plus cross-slice duplication (logic repeated where a shared module belongs) and magic numbers/strings that are repeated or semantically opaque.
 
-### Subagent 3 — Style, Naming & Duplication
+### Finder 4 — Integration & Deployment
 
-Owns: style / naming concerns the linter can't catch, and duplication across slices.
+- Runtime + ship-time interactions per the loaded rules (i18n, cache/query keys, form-abandonment, lazy-loading, browser support, lifecycle ownership, error bubbling). Cite the file; don't invent rules.
+- **i18n key lifecycle** (universal): new keys missing from locale files, removed keys still referenced, hard-coded user-facing strings.
+- **Deployment** (universal): feature flags, env vars, migration order, backward-incompatible payloads, breaking public-contract changes callers in the diff don't update.
 
-- Apply whatever style / naming rules the loaded files (`code-style.md`, `naming.md`, project CLAUDE.md) prescribe — exports, return discipline, switch shape, async/await, destructuring placement, handler/callback/flag naming, props-interface naming, constants policy, etc.
-- Cross-slice duplication: logic repeated in multiple places that belongs in a shared module.
-- Magic numbers/strings only when repeated or semantically opaque per the loaded rules.
-- Do not flag anything the project's eslint config already covers (assume CI catches lint).
+### Finder 5 — Performance & Complexity
 
-### Subagent 4 — Integration & Deployment Risk
+Strict algorithmic complexity — clean-looking code hiding O(n²)+ — plus avoidable sequential I/O. Each P0/P1 names the delta (e.g. `O(n*m) → O(n+m)`); `snippet_after` shows the Set/Map or `Promise.all` fix.
 
-Owns: how this diff interacts with the rest of the system at runtime and at ship time.
-
-- Apply whatever integration rules the loaded files prescribe — localization / i18n discipline, cache-key / query-key conventions, form-abandonment safeguards, lazy-loading expectations, CSS-vs-JS preferences, browser-support policy, component lifecycle ownership, error-bubbling conventions, etc. Cite the rule file in `rule_source`. Do not invent integration rules that aren't in the loaded sources.
-- **Translation-key lifecycle** (universal where i18n exists): new keys referenced but missing from locale files, removed keys still referenced elsewhere, hard-coded user-facing strings that should be translated.
-- **Deployment risk** (universal): feature flags, env vars, migration order, backwards-incompatible payload changes, breaking changes to public contracts that callers in the diff don't update.
-
-(Performance / parallelism concerns — including `Promise.all` for parallelizable async — belong to Subagent 5.)
-
-### Subagent 5 — Performance & Complexity
-
-Owns: **strict algorithmic complexity** — clean-looking code that hides O(n²) or worse, plus avoidable sequential I/O. Nested array scans wrapped in `.filter` / `.find` / `.includes` read like prose but multiply at scale.
-
-Signals to flag (each P0/P1 finding must include a one-line complexity callout, e.g. `O(n*m) → O(n+m)`):
-
-- **Nested membership lookups** — `.find` / `.includes` / `.indexOf` / `.some` inside `.map` / `.filter` / `for` over the same or another collection. Fix: lift the inner collection into a `Set` or `Map` once outside the loop.
+- **Nested membership lookups** — `.find` / `.includes` / `.indexOf` / `.some` inside `.map` / `.filter` / `for`. Lift the inner collection into a `Set`/`Map` once.
   ```ts
   // O(n*m)
   const enriched = users.map((u) => ({ ...u, role: roles.find((r) => r.id === u.roleId) }));
@@ -109,37 +97,65 @@ Signals to flag (each P0/P1 finding must include a one-line complexity callout, 
   const roleById = new Map(roles.map((r) => [r.id, r]));
   const enriched = users.map((u) => ({ ...u, role: roleById.get(u.roleId) }));
   ```
-- **Chained passes** — `.filter().map().find()` over a large array where a single pass or early exit would do.
-- **`.sort()` inside render or on every event** — sort once, memoize, or sort on write.
-- **Repeated heavy construction inside a loop** — `new RegExp(...)`, `JSON.parse(JSON.stringify(...))`, `new Date(...)` parsed from a constant. Hoist outside.
-- **Sequential `await` in a loop** when iterations are independent → use `Promise.all` / `Promise.allSettled`.
-- **N+1** API or DB calls — one fetch per item where one batched fetch exists.
-- **Recursive set/tree building without memoization** when input size is non-trivial.
-- **Accidentally quadratic string building** — repeated `str += ...` over large n where chunks + `join` would be linear in practice.
+- **Chained passes** — `.filter().map().find()` where a single pass or early exit would do.
+- **`.sort()` in render or per-event** — sort once, memoize, or sort on write.
+- **Heavy construction in a loop** — `new RegExp`, `JSON.parse(JSON.stringify(...))`, `new Date` from a constant. Hoist out.
+- **Sequential `await` in a loop** with independent iterations → `Promise.all` / `Promise.allSettled`.
+- **N+1** API/DB calls where one batched fetch exists.
+- **Recursive tree/set building without memoization** on non-trivial input.
+- **Quadratic string building** — `str += ...` over large n where chunks + `join` is linear.
 
-Severity:
-- **P0** — quadratic-or-worse on a path that can plausibly see large n in prod (user data, paginated lists, search results).
-- **P1** — quadratic on bounded-but-growable input, or sequential awaits that should parallelize.
-- **P2** — micro-inefficiency on tiny / fixed-size inputs (call out as drift, not blocker).
+Severity follows the general guide, scoped to n: P0 if large n is plausible in prod (user data, paginated lists, search); P1 if bounded-but-growable or sequential awaits that should parallelize; P2 on tiny/fixed input (drift, not blocker).
 
-Each P0/P1 finding's `snippet_after` shows the Set/Map (or `Promise.all`) fix; `fix` line names the complexity delta.
+## Step 2 — Merge candidates
 
-## Step 2 — Merge findings
+Parse the 5 arrays into one list:
 
-After all 5 subagents return, parse their JSON arrays and merge:
+1. **Re-namespace** each `id` to be globally unique (`s1-c1`, `s3-c2`) so the skeptic can reference them.
+2. **Deduplicate** by `(file, line, issue similarity)` — keep the higher severity, prefer the more concrete snippet and the more specific `rule_source`, merge meaningful `assumption`s.
+3. **Sort** by file, then line (severity grouping happens after verification).
 
-1. **Deduplicate** by `(file, line, issue similarity)`. If two subagents flag overlapping issues, keep the higher severity and combine the fix suggestions (prefer the more concrete snippet). Prefer the finding with a specific `rule_source` over a generic one.
-2. **Group by severity**: P0 → P1 → P2.
-3. **Sort within each group** by file path, then line.
+If the merged list is empty, skip Step 3 and report no issues.
 
-## Step 3 — Output inline
+## Step 3 — Verify
 
-Produce a single markdown report. Render each finding with before/after code snippets when present:
+Spawn **a single skeptic subagent** (one Task call) with **Read and Grep access**. One skeptic per file is too narrow and misses cross-file guarantees — one skeptic that sees every candidate and can read any file has the widest context.
+
+It receives: the diff, the rule files, the manifest, and the full merged candidate list (`id`, `assumption`, `file`, `line`, `snippet_before`, `rule_source`).
+
+**Skeptic charter:**
+
+> You are an adversarial reviewer. Your job is to **refute** each candidate, not confirm it. Each rests on an `assumption` — check it against the *real files*, not the diff.
+>
+> For each candidate:
+> 1. `Read` the file and its surroundings — enclosing function, callers (`Grep` the symbol), type defs, guards, early returns the diff-only finder couldn't see.
+> 2. Decide whether the `assumption` holds. "Possible null deref" → refuted if a caller/guard guarantees non-null. "O(n²)" → refuted if n is provably tiny/fixed. Rule violation → refuted if the cited rule doesn't apply or the linter covers it.
+> 3. **Burden of proof is on the finding.** Confirm only when you can cite specific `file:line` proving the problem is real. Anything you can't prove — including uncertain — is `refuted`.
+>
+> Return a JSON array, one object per candidate, nothing else:
+>
+> ```json
+> {
+>   "id": "s1-c1",
+>   "verdict": "confirmed" | "refuted",
+>   "evidence": "file:line citations proving the verdict",
+>   "corrected_severity": "P0" | "P1" | "P2",
+>   "reason_if_refuted": "why it's a false positive, e.g. 'null filtered by guard at foo.ts:12'"
+> }
+> ```
+>
+> `evidence` is mandatory for `confirmed` and must contain ≥1 `file:line` you actually read. `corrected_severity` downgrades a real-but-minor candidate. Don't invent new findings — only judge the ones given.
+
+After it returns: drop every `refuted`, keep `confirmed`, apply `corrected_severity`, attach `evidence`. Group by severity (P0 → P1 → P2), sort by file then line.
+
+## Step 4 — Output
+
+Every finding has survived verification. Render with before/after snippets when present, and always include the skeptic's `_Проверено:_` line so the user can audit the verification.
 
 ````markdown
-# Code Review — <N> findings
-_Applied rules: <comma-separated list from manifest>_
-_Missing: <comma-separated list, or "none">_
+# Code Review — <N> confirmed findings
+_Applied rules: <list>_ · _Missing: <list or "none">_
+_Candidates: <total> · confirmed: <N> · refuted: <total − N>_
 
 ## P0 — Must fix (<count>)
 
@@ -149,45 +165,30 @@ _Missing: <comma-separated list, or "none">_
 // before
 <snippet_before>
 ```
-
 ```ts
 // after
 <snippet_after>
 ```
 
-_Why:_ <fix rationale> _(source: <rule_source>)_.
+_Why:_ <rationale> _(source: <rule_source>)_.
+_Проверено:_ <evidence — the file:line the skeptic read that confirms this>.
 
 ## P1 — Should fix (<count>)
-
-### `file.ts:45` — issue description
-
-```ts
-// before
-<snippet_before>
-```
-
-```ts
-// after
-<snippet_after>
-```
-
-_Why:_ <fix rationale> _(source: <rule_source>)_.
+Same shape as P0.
 
 ## P2 — Nice to fix (<count>)
-
-- **`file.ts:78`** — issue description. _Fix:_ <one-line fix> _(source: <rule_source>)_.
+- **`file.ts:78`** — issue. _Fix:_ <one-liner> _(source: <rule_source>)_. _Проверено:_ <evidence>.
 
 ## Summary
-<2-3 sentences: overall risk level, headline concerns, merge recommendation.>
+<2-3 sentences: risk level, headline concerns, merge recommendation. Note the refuted count in one clause if any — it shows the review filtered rather than found nothing.>
 ````
 
-Use the appropriate language hint in fences (`ts`, `tsx`, `js`, `css`, `twig`, etc.). If a severity bucket is empty, omit its section. If there are zero findings, output: `Code Review — no issues found in <N> files / <M> lines.` (still include the manifest header so the user knows which rules were applied).
+Use the right language hint in fences (`ts`, `tsx`, `css`, `twig`, …). Omit empty buckets. If zero findings survive, output `Code Review — no confirmed issues in <N> files / <M> lines.` plus the candidate tally and manifest header.
 
 ## Hard constraints
 
-- INLINE OUTPUT ONLY. Do not write to any file. Do not enter plan mode. Do not call ExitPlanMode or AskUserQuestion.
-- Do not modify any code in the repo — review only.
-- Do not invoke other slash commands.
-- Do not restate or paraphrase the loaded rule files inside the report. Cite them by filename via `rule_source`.
-- Every finding's `file:line` must point at a line the diff added or modified (the prelude enforces this for subagents; the orchestrator should drop any finding that violates it during merge).
-- If a subagent fails or returns invalid JSON, note it in the Summary and continue with the rest.
+- INLINE ONLY: no file writes, no plan mode, no `ExitPlanMode`/`AskUserQuestion`, no other slash commands, no code changes.
+- **Never show an unverified candidate as a finding** — only `confirmed` verdicts reach the report. The skeptic must actually `Read`/`Grep` files; re-reading the diff isn't verification. If the skeptic fails or returns invalid JSON: note it in the Summary and tag any shown candidates `⚠ UNVERIFIED` so the user knows none were confirmed.
+- Every finding's `file:line` must point at a diff-touched line; drop violators on merge.
+- Cite rules by filename via `rule_source`; never restate rule files in the report.
+- If a finder returns invalid JSON, note it in the Summary and continue with the rest.
