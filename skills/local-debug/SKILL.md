@@ -31,7 +31,7 @@ Trace the data flow. Don't guess — read.
   - render order / effect timing (useEffect deps, race, double-render)
   - state shape (normalization, reference equality)
   - async race (concurrent requests, abort, stale closure)
-- Use Grep/Read aggressively. Prefer the Explore agent if the surface is broad (≥3 layers to trace).
+- Walk the call graph via `LSP` (ts/js/tsx, php, rust, go): `outgoingCalls`/`goToDefinition` to follow the flow forward, `findReferences`/`incomingCalls` for callers, `hover` for the real type at a boundary. Grep only to locate a symbol's position; `Read` for surrounding context. Prefer the Explore agent if the surface is broad (≥3 layers to trace) — give it `LSP` access.
 
 Report a short trace back to the user (3–6 bullets) naming the suspected mechanism(s) BEFORE instrumenting.
 

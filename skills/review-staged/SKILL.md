@@ -120,7 +120,7 @@ If the merged list is empty, skip Step 3 and report no issues.
 
 ## Step 3 — Verify
 
-Spawn **a single skeptic subagent** (one Task call) with **Read and Grep access**. One skeptic per file is too narrow and misses cross-file guarantees — one skeptic that sees every candidate and can read any file has the widest context.
+Spawn **a single skeptic subagent** (one Task call) with **Read, Grep and LSP access**. One skeptic per file is too narrow and misses cross-file guarantees — one skeptic that sees every candidate and can read any file has the widest context.
 
 It receives: the diff, the rule files, the manifest, and the full merged candidate list (`id`, `assumption`, `file`, `line`, `snippet_before`, `rule_source`).
 
@@ -129,7 +129,7 @@ It receives: the diff, the rule files, the manifest, and the full merged candida
 > You are an adversarial reviewer. Your job is to **refute** each candidate, not confirm it. Each rests on an `assumption` — check it against the *real files*, not the diff.
 >
 > For each candidate:
-> 1. `Read` the file and its surroundings — enclosing function, callers (`Grep` the symbol), type defs, guards, early returns the diff-only finder couldn't see.
+> 1. `Read` the file and its surroundings — enclosing function, callers, type defs, guards, early returns the diff-only finder couldn't see. For ts/js/tsx, php, rust, go check the *semantics* via `LSP`, not by grepping the symbol name: `findReferences`/`incomingCalls` for who calls it, `goToDefinition` for where it resolves, `hover` for its real type. Grep is only a locator to find a symbol's position.
 > 2. Decide whether the `assumption` holds. "Possible null deref" → refuted if a caller/guard guarantees non-null. "O(n²)" → refuted if n is provably tiny/fixed. Rule violation → refuted if the cited rule doesn't apply or the linter covers it.
 > 3. **Burden of proof is on the finding.** Confirm only when you can cite specific `file:line` proving the problem is real. Anything you can't prove — including uncertain — is `refuted`.
 >
@@ -203,7 +203,7 @@ When triggered:
 ## Hard constraints
 
 - INLINE: no plan mode, no `ExitPlanMode`/`AskUserQuestion`, no other slash commands. **Read-only by default — no file writes during Steps 0–4.** Code changes happen only in the opt-in Step 5, after an explicit user request, and only on confirmed P0/P1.
-- **Never show an unverified candidate as a finding** — only `confirmed` verdicts reach the report. The skeptic must actually `Read`/`Grep` files; re-reading the diff isn't verification. If the skeptic fails or returns invalid JSON: note it in the Summary and tag any shown candidates `⚠ UNVERIFIED` so the user knows none were confirmed.
+- **Never show an unverified candidate as a finding** — only `confirmed` verdicts reach the report. The skeptic must actually inspect the real files (`Read` + `LSP`, `Grep` only to locate); re-reading the diff isn't verification. If the skeptic fails or returns invalid JSON: note it in the Summary and tag any shown candidates `⚠ UNVERIFIED` so the user knows none were confirmed.
 - Every finding's `file:line` must point at a diff-touched line; drop violators on merge.
 - Cite rules by filename via `rule_source`; never restate rule files in the report.
 - If a finder returns invalid JSON, note it in the Summary and continue with the rest.

@@ -11,6 +11,10 @@
 
 set -uo pipefail
 
+# Страховка: без pager. Сейчас весь git-вывод пайпится/захватывается, но если
+# в скрипт добавят сырой git log/diff в TTY — less/delta не «съест» вывод.
+export GIT_PAGER=cat
+
 GITDIR="$(git rev-parse --absolute-git-dir 2>/dev/null)" || {
   echo "Не git-репозиторий (или git недоступен)." >&2
   exit 1
