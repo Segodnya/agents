@@ -158,12 +158,16 @@ After Step 3, do **one** holistic pass over the whole diff and ask a small, fixe
 1. **Is the change needed at all?** — does it solve a real problem, or is it dead/speculative code, a config that defaults the same way, a guard for a case that can't happen?
 2. **Does it add work that wasn't there?** — a request / render / effect / subscription the app didn't do before and doesn't need. (Concrete, line-pinnable instances belong to Finder 5 + verification; here you flag the *pattern* even when you can't pin one line.)
 3. **Is there a categorically simpler path?** — not "this helper already exists" (Finder 3 owns that), but "this whole approach could be replaced by a simpler one" — derived state instead of synced state, a built-in instead of a hand-rolled loop, deleting code instead of adding a branch.
+4. **Could touched modules be deepened?** — judge the **changed modules and their immediate seams only** (a *seam* = where an interface meets its callers, a place behaviour can be swapped without editing in place; not a whole-repo walk). Is the diff adding a **shallow** module — interface nearly as complex as its implementation — splitting one concept across many tiny modules, or leaking state across a seam? Run the **deletion test** on each: if you deleted what the diff adds, would complexity *concentrate* in one place (it earns its keep) or just *move* across callers (it's a pass-through)? For every module that wants deepening, name the deeper shape — fewer, deeper modules behind a smaller interface — and the payoff: **locality** (change, bugs and knowledge land in one place) and **leverage** (callers get more behind a smaller interface), plus testability. The diff can touch several modules, so more than one may qualify — report the most valuable first.
+
+This lens (deep vs shallow modules, seams, the deletion test) is the one `improve-codebase-architecture` skill runs at repo scale; the definitions above are inlined here so this pass is self-contained — you don't need that skill loaded to apply them.
 
 Rules for this pass:
 
 - **Advisory, never a finding** — own tagged section, never in the P0/P1/P2 buckets.
-- **At most 3; silence is valid** — don't manufacture notes to fill space.
-- **Each note = one question to the author + one concrete alternative.** No vague "consider refactoring"; if you can't name the simpler path, you don't have a note.
+- **At most 3 design-necessity notes (questions 1–3) plus at most 3 deepening notes (question 4); silence is valid for both** — don't manufacture notes to fill space.
+- **Each note = one question to the author + one concrete alternative.** No vague "consider refactoring"; if you can't name the simpler path (or, for #4, the deeper shape), you don't have a note.
+- **Stay read-only and one-shot.** Don't drop into a grilling loop, don't ask "which would you like to explore?", and don't write `CONTEXT.md` / ADRs — those are `improve-codebase-architecture` skill's job. For a deepening note worth pursuing interactively, end it by pointing the author to `/improve-codebase-architecture` (full vocabulary + `CONTEXT.md` + the grilling loop).
 
 ## Step 4 — Output
 
@@ -200,10 +204,11 @@ Same shape as P0.
 <2-3 sentences: risk level, headline concerns, merge recommendation. Note the refuted count in one clause if any — it shows the review filtered rather than found nothing.>
 
 ## 💭 Design notes (advisory, unverified)
-> Not bugs — questions about the change's intent (Step 3.5); you may be missing the author's context. Max 3, each a question + a concrete alternative. Omit the whole section when there are none.
-- **Needed?** <one sentence + concrete alternative>
-- **Added work:** <what it adds and why it isn't needed>
-- **Simpler path:** <a categorically simpler approach>
+> Not bugs — questions about the change's intent and shape (Step 3.5); you may be missing the author's context. Up to 3 necessity notes + up to 3 deepening notes, each a question + a concrete alternative. Omit the whole section when there are none.
+- **Needed?** one sentence + concrete alternative
+- **Added work:** what it adds and why it isn't needed
+- **Simpler path:** a categorically simpler approach
+- **Deepen?** a shallow/leaky module the diff touches + the deeper shape, in locality/leverage terms — one bullet per module, most valuable first, up to 3; end with «to explore: /improve-codebase-architecture» when worth pursuing
 ````
 
 Use the right language hint in fences (`ts`, `tsx`, `css`, `twig`, …). Omit empty buckets. If zero findings survive, output `Code Review — no confirmed issues in <N> files / <M> lines.` plus the candidate tally and manifest header.
