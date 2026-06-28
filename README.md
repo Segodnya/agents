@@ -1,6 +1,6 @@
 # agents
 
-Личные скиллы для Claude Code.
+Личные скиллы и команды для Claude Code.
 
 | Скилл | Что делает |
 |---|---|
@@ -16,6 +16,18 @@
 
 ```bash
 ln -s "$PWD/skills/<name>" ~/.claude/skills/<name>
+```
+
+## Команды
+
+| Команда | Что делает |
+|---|---|
+| [`diff-summary`](commands/diff-summary.md) | Однострочная сводка по дифу (`staged` / `branch` / `working`) — готовая к вставке в описание MR. |
+
+Подключить глобально:
+
+```bash
+ln -s "$PWD/commands/<name>.md" ~/.claude/commands/<name>.md
 ```
 
 ## Установить через skills.sh
