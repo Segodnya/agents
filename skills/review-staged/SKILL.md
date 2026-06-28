@@ -10,13 +10,14 @@ Two waves over the staged diff (`git diff --staged`):
 - **FIND** — 5 parallel finder subagents see the diff alone and produce *candidates*. A broad, cheap net: they over-produce on purpose.
 - **VERIFY** — one skeptic subagent reads the real files and tries to *refute* each candidate. Only confirmed ones survive.
 
-The finders and the critic are different agents on purpose — the critic has the file context the diff-only finders lack. Output INLINE — no plan mode, no clarifying questions. **Read-only by default**; writing files happens only in the opt-in Step 5 when the user explicitly asks to apply fixes.
+The finders and the critic are different agents on purpose — the critic has the file context the diff-only finders lack. Output INLINE — no plan mode, no clarifying questions. **Read-only by default**; writing files happens only in the opt-in Step 5 when the user explicitly asks to apply fixes. After verification the main context adds one **advisory** design pass (Step 3.5), kept separate from the verified findings.
 
 ```
 Step 0  GROUND   load rules + manifest, filter the diff
 Step 1  FIND     5 finders, diff-only → candidates
 Step 2  MERGE    dedup + namespace ids
 Step 3  VERIFY   one skeptic reads files, refutes → keep confirmed
+Step 3.5 DESIGN  main context judges necessity / simpler path → advisory notes
 Step 4  OUTPUT   confirmed findings only, each with its evidence
 Step 5  APPLY    (opt-in) edit confirmed P0/P1 only when the user asks
 ```
@@ -88,16 +89,9 @@ Style/naming the linter can't catch, per the loaded rules. Plus cross-slice dupl
 
 ### Finder 5 — Performance & Complexity
 
-Strict algorithmic complexity — clean-looking code hiding O(n²)+ — plus avoidable sequential I/O. Each P0/P1 names the delta (e.g. `O(n*m) → O(n+m)`); `snippet_after` shows the Set/Map or `Promise.all` fix.
+Strict algorithmic complexity — clean-looking code hiding O(n²)+ — plus avoidable sequential I/O **and avoidable work the diff itself introduces**: a request, a re-render, an effect or a query the app didn't do before and doesn't need. Each P0/P1 names the delta (e.g. `O(n*m) → O(n+m)`, or `+1 request → reuse existing query`); `snippet_after` shows the Set/Map, `Promise.all`, memo or reuse fix.
 
 - **Nested membership lookups** — `.find` / `.includes` / `.indexOf` / `.some` inside `.map` / `.filter` / `for`. Lift the inner collection into a `Set`/`Map` once.
-  ```ts
-  // O(n*m)
-  const enriched = users.map((u) => ({ ...u, role: roles.find((r) => r.id === u.roleId) }));
-  // O(n+m)
-  const roleById = new Map(roles.map((r) => [r.id, r]));
-  const enriched = users.map((u) => ({ ...u, role: roleById.get(u.roleId) }));
-  ```
 - **Chained passes** — `.filter().map().find()` where a single pass or early exit would do.
 - **`.sort()` in render or per-event** — sort once, memoize, or sort on write.
 - **Heavy construction in a loop** — `new RegExp`, `JSON.parse(JSON.stringify(...))`, `new Date` from a constant. Hoist out.
@@ -106,7 +100,12 @@ Strict algorithmic complexity — clean-looking code hiding O(n²)+ — plus avo
 - **Recursive tree/set building without memoization** on non-trivial input.
 - **Quadratic string building** — `str += ...` over large n where chunks + `join` is linear.
 
-Severity follows the general guide, scoped to n: P0 if large n is plausible in prod (user data, paginated lists, search); P1 if bounded-but-growable or sequential awaits that should parallelize; P2 on tiny/fixed input (drift, not blocker).
+**Added runtime work (did the diff make the app do *more* than before?)** — flag only where eslint-plugin-react-hooks / the linter can't already see it:
+
+- **Redundant request** — a new `fetch`/query for data already fetched (existing query, cache, props, parent). Reuse the existing source instead of adding a second round-trip.
+- **Extra re-render** — new state/context, or an inline object/array/callback passed as a prop, that re-renders a subtree on every parent render where lifting state, a ref, or memoization avoids it.
+- **Over-firing effect** — `useEffect` whose dep is an object/array recreated each render (or too broad), causing repeat fetches/subscriptions; stabilize the dep or move the work out of the effect.
+- **Recompute each render** — non-trivial value rebuilt every render that `useMemo` / hoisting / deriving-once avoids.
 
 ## Step 2 — Merge candidates
 
@@ -149,6 +148,22 @@ It receives: the diff, the rule files, the manifest, and the full merged candida
 
 After it returns: drop every `refuted`, keep `confirmed`, apply `corrected_severity`, attach `evidence`. Group by severity (P0 → P1 → P2), sort by file then line.
 
+## Step 3.5 — Design judgment (advisory)
+
+The find→verify pipeline only catches *falsifiable* problems. It can't judge the gestalt: **is this change the right shape at all?** That's taste, not a provable bug — the skeptic would refute it, the diff-only finders can't see the codebase — so it's owned by **you, the main context** (you already hold the diff, rules and confirmed findings).
+
+After Step 3, do **one** holistic pass over the whole diff and ask a small, fixed set:
+
+1. **Is the change needed at all?** — does it solve a real problem, or is it dead/speculative code, a config that defaults the same way, a guard for a case that can't happen?
+2. **Does it add work that wasn't there?** — a request / render / effect / subscription the app didn't do before and doesn't need. (Concrete, line-pinnable instances belong to Finder 5 + verification; here you flag the *pattern* even when you can't pin one line.)
+3. **Is there a categorically simpler path?** — not "this helper already exists" (Finder 3 owns that), but "this whole approach could be replaced by a simpler one" — derived state instead of synced state, a built-in instead of a hand-rolled loop, deleting code instead of adding a branch.
+
+Rules for this pass:
+
+- **Advisory, never a finding** — own tagged section, never in the P0/P1/P2 buckets.
+- **At most 3; silence is valid** — don't manufacture notes to fill space.
+- **Each note = one question to the author + one concrete alternative.** No vague "consider refactoring"; if you can't name the simpler path, you don't have a note.
+
 ## Step 4 — Output
 
 Every finding has survived verification. Render with before/after snippets when present, and always include the skeptic's `_Проверено:_` line so the user can audit the verification.
@@ -182,6 +197,12 @@ Same shape as P0.
 
 ## Summary
 <2-3 sentences: risk level, headline concerns, merge recommendation. Note the refuted count in one clause if any — it shows the review filtered rather than found nothing.>
+
+## 💭 Design notes (advisory, unverified)
+> Not bugs — questions about the change's intent (Step 3.5); you may be missing the author's context. Max 3, each a question + a concrete alternative. Omit the whole section when there are none.
+- **Needed?** <one sentence + concrete alternative>
+- **Added work:** <what it adds and why it isn't needed>
+- **Simpler path:** <a categorically simpler approach>
 ````
 
 Use the right language hint in fences (`ts`, `tsx`, `css`, `twig`, …). Omit empty buckets. If zero findings survive, output `Code Review — no confirmed issues in <N> files / <M> lines.` plus the candidate tally and manifest header.
@@ -204,6 +225,7 @@ When triggered:
 
 - INLINE: no plan mode, no `ExitPlanMode`/`AskUserQuestion`, no other slash commands. **Read-only by default — no file writes during Steps 0–4.** Code changes happen only in the opt-in Step 5, after an explicit user request, and only on confirmed P0/P1.
 - **Never show an unverified candidate as a finding** — only `confirmed` verdicts reach the report. The skeptic must actually inspect the real files (`Read` + `LSP`, `Grep` only to locate); re-reading the diff isn't verification. If the skeptic fails or returns invalid JSON: note it in the Summary and tag any shown candidates `⚠ UNVERIFIED` so the user knows none were confirmed.
+- **Design notes (Step 3.5) are advisory** — the only unverified text in the report; never in the P0/P1/P2 buckets.
 - Every finding's `file:line` must point at a diff-touched line; drop violators on merge.
 - Cite rules by filename via `rule_source`; never restate rule files in the report.
 - If a finder returns invalid JSON, note it in the Summary and continue with the rest.
