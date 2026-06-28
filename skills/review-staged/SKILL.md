@@ -28,9 +28,10 @@ Discover the rule sources before spawning anything — the rule files are the so
 
 1. Load (in order, skip missing): `CLAUDE.md` at repo root + any nested `CLAUDE.md` it references; `AGENTS.md` + nested; all `~/.claude/rules/*.md`; all `docs/rules/*.md`.
 2. Build a **manifest** of which sources loaded and which were missing — both go in the report header. If zero rule files load, fall back to universal mode (correctness / security / performance only) and tag every `rule_source` as `"universal"`.
-3. Run `git diff --staged --stat`. If empty, stop and report "no staged changes". **Filter out non-reviewable paths** — binary files, lockfiles (`*.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`), generated/minified output (`*.min.*`, `dist/`, `build/`, `.next/`, `out/`), snapshots (`*.snap`), vendored dirs. Don't pass their hunks to anyone.
+3. Get the reviewable **file list**: `rtk run git diff --staged --name-only`. If empty, stop and report "no staged changes". **Filter out non-reviewable paths** — binary files, lockfiles (`*.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`), generated/minified output (`*.min.*`, `dist/`, `build/`, `.next/`, `out/`), snapshots (`*.snap`), vendored dirs. Don't pass their hunks to anyone.
+4. Fetch each reviewable file's diff **raw and separately** — `rtk run git diff --staged -- <file>` — then concatenate into the full staged diff. **Why `rtk run`:** the Bash hook rewrites bare `git diff` into rtk's *condensed* diff (only changed lines), which silently drops context and truncates — that's what broke this review before. `rtk run` is the unfiltered passthrough the hook leaves untouched; per-file fetch also chunks the diff so no oversized blob gets truncated.
 
-Pass the staged diff, the rule files (verbatim), and the manifest to every subagent. Don't make subagents re-read files or re-derive rules from memory.
+Pass the full (per-file, raw) staged diff, the rule files (verbatim), and the manifest to every subagent. Don't make subagents re-read files or re-derive rules from memory.
 
 ## Step 1 — FIND
 
