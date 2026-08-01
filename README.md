@@ -4,7 +4,7 @@
 
 | Скилл | Что делает |
 |---|---|
-| [`review-staged`](skills/review-staged) | Параллельный ревью staged-diff через саб-агентов с adversarial-проверкой находок. |
+| [`review-staged`](skills/review-staged) | Параллельный ревью диффа (staged / last / branch / worktree) через саб-агентов с adversarial-проверкой находок; требует МР и чек-лист автора, снимает находки, уже объяснённые в тредах. |
 | [`dev-feedback`](skills/dev-feedback) | Performance feedback на разработчика по merged-МР из GitLab (через `glab`). |
 | [`audit-reply`](skills/audit-reply) | Разбирает комментарии аудитора в GitLab MR и по каждому помогает решить — править код или ответить обоснованием (через `glab`). |
 | [`local-debug`](skills/local-debug) | Расставляет `console.warn`-пробы и диагностирует баг по логам. |
