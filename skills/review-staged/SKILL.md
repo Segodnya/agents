@@ -94,6 +94,8 @@ Group the filtered files into shards of **≤4 files** (keep files of one module
 
 Each shard reviewer gets: its files' diff hunks, the rules digest + rule file paths, the checklist, the manifest, the perimeter, the prelude, and charters 1–4.
 
+**Threads and previous-round reports stay in the main context — never in a shard prompt.** A reviewer that reads the author's explanations, or last round's finding list, stops emitting the candidate instead of proving it, and the gate then has nothing to check. Deciding what was already answered is done **once**, in Step 3, over the deduped finding list — not N times in parallel over raw candidates.
+
 **Common prelude — prepend to every reviewer prompt:**
 
 > - **Rules = the digest and the rule files it points at.** No rules from memory. Flag a violation only if it's traceable to a line you can quote from those, or is a universal correctness / security / performance principle. Name the rule file in `rule_source`.
@@ -211,6 +213,19 @@ For each finding, look for a thread covering it — same `file` and `new_line` w
 - **Doesn't close it** — stays as a normal finding, plus one line: what the author answered and why it doesn't cover the case.
 
 No matching thread → the finding is untouched.
+
+### 3.1 Previous rounds
+
+An MR reviewed before carries **last round's report pasted as a thread root** (12–32 KB, `fetch_mr.py` keeps up to 40 000 chars — a body ending in `... [truncated, N chars total]` means it did not fit, say so in the header). Re-reviews are the norm, not the exception, so handle it explicitly:
+
+1. Recognise it by shape — `# Code Review — <N> находок`, numbered `#1…#N` buckets — not by author.
+2. For each current finding, look for the same claim in it. Found → it is a **repeat**, and what matters is the reply under that thread, not the report itself:
+   - author answered and the answer closes it → `✅ снято тредом` as above;
+   - author answered and it doesn't close it → keep the finding, add one line «повтор #<n> прошлого раунда, ответ не закрывает»;
+   - **no reply at all** → keep it, mark «повтор #<n>, без ответа автора». Repeating an unanswered finding is the point of a re-review; repeating a settled one is noise.
+3. Numbering is per-round and does not carry over — reference old numbers only inside those one-line notes.
+
+This runs **once, here, in the main context**. Never hand a previous report to a shard, and never let it shrink the perimeter: a file clean last round can be dirty now.
 
 ## Step 4 — Design judgment (advisory)
 
