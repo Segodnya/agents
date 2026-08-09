@@ -46,14 +46,14 @@ Navigate by **name**, from a cited line to the one thing it depends on (guard, c
 | `branch` | `git diff $(git merge-base HEAD <base>)..HEAD` |
 | `worktree` | `git diff HEAD` (staged + unstaged) |
 
-`<base>` — from `rtk run git symbolic-ref --short refs/remotes/origin/HEAD` (strip `origin/`), fall back to `master`. No argument → `AskUserQuestion` with the four modes; pre-select `staged` when `rtk run git diff --cached --quiet` exits 1. Argument doesn't match the table → ask, don't guess.
+`<base>` — from `git symbolic-ref --short refs/remotes/origin/HEAD` (strip `origin/`), fall back to `master`. No argument → `AskUserQuestion` with the four modes; pre-select `staged` when `git diff --cached --quiet` exits 1. Argument doesn't match the table → ask, don't guess.
 
-`rtk run git diff <range> --name-only`. Empty → stop with "нет изменений в режиме `<mode>`", before asking anything else. Filter out binaries, lockfiles (`*.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`), generated output (`*.min.*`, `dist/`, `build/`, `.next/`, `out/`), snapshots (`*.snap`), vendored dirs.
+`git diff <range> --name-only`. Empty → stop with "нет изменений в режиме `<mode>`", before asking anything else. Filter out binaries, lockfiles (`*.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`), generated output (`*.min.*`, `dist/`, `build/`, `.next/`, `out/`), snapshots (`*.snap`), vendored dirs.
 
 ### 0.2 MR — required
 
 1. MR URL in the invocation → use it.
-2. Else `rtk run glab mr list --source-branch $(git branch --show-current)` → show what was found, confirm it's the right one.
+2. Else `glab mr list --source-branch $(git branch --show-current)` → show what was found, confirm it's the right one.
 3. Nothing found → `AskUserQuestion`: paste the URL / `--no-mr`.
 
 No URL and no `--no-mr` → **stop**. `--no-mr` is the only bypass: it skips Step 3 and the cross-file reviewer's checklist charter, and the header says so.
@@ -72,7 +72,7 @@ SKILL_DIR — the absolute path from the `Base directory for this skill:` line, 
 python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all
 ```
 
-`--all` is mandatory: a resolved thread is exactly «уже обсудили». `audit-reply` not installed → `rtk run glab api "projects/:id/merge_requests/<iid>/discussions"`. Script fails (auth, wrong host) → print the `glab auth status --hostname <host>` hint, continue **without** thread matching, say so in the header.
+`--all` is mandatory: a resolved thread is exactly «уже обсудили». `audit-reply` not installed → `glab api "projects/:id/merge_requests/<iid>/discussions"`. Script fails (auth, wrong host) → print the `glab auth status --hostname <host>` hint, continue **without** thread matching, say so in the header.
 
 ### 0.5 Rules, perimeter, diff
 
@@ -80,7 +80,7 @@ python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all
 2. **Rules digest — built once, reused by every reviewer.** Copy the surviving rule text **verbatim**, dropping only sections whose scope matches no file in the diff (a `.php` section in a TS-only diff, a CSS section with no stylesheet touched). Never paraphrase, never summarize a rule into your own words — a reviewer citing a rule it can't quote is exactly the failure the gate exists for. Keep the source filename on every kept section, and pass the rule file **paths** alongside the digest so a reviewer can `Read` the original when it needs the full wording.
 3. **Manifest:** which sources loaded / were missing / were skipped as not applicable / were trimmed out of the digest. Zero rules → universal mode (correctness / security / performance only), every `rule_source` tagged `"universal"`.
 4. **Perimeter:** the filtered file list + each file's direct importers (one `Grep` per file on a literal import specifier, or `findReferences` on its exports). Write it down — Step 2 checks against it.
-5. **Diff:** `rtk run git diff <range> -- <file>` per file, kept **per file** — Step 1 hands each reviewer only its own files' hunks. `rtk run` because the Bash hook rewrites bare `git diff` into a condensed diff that drops context and truncates.
+5. **Diff:** `git diff <range> -- <file>` per file, kept **per file** — Step 1 hands each reviewer only its own files' hunks. **Bare `git`, never `rtk run git`:** `git` is in rtk's `exclude_commands`, so the Bash hook leaves it alone and the diff already comes through raw — while `rtk run` re-parses argv through `sh -c` and mangles any argument carrying quotes, parens or `;`.
 
 ## Step 1 — Review
 
@@ -189,7 +189,7 @@ One agent, the **whole** diff (all files' hunks), the digest, the checklist, the
 Mechanical, main-context, no judgment. Discard on the first failed check, tally the reason:
 
 1. `evidence.quote` non-empty — else discard (*no evidence*).
-2. **Quote is in the file:** `rtk run grep -nF '<longest distinctive line of the quote>' <file>`. No match → discard (*quote not in file*). Match far from `line` → correct `line` to the hit, keep.
+2. **Quote is in the file:** `grep -nF '<longest distinctive line of the quote>' <file>` — **bare `grep`, never `rtk run grep`**. `rtk run` re-parses argv through `sh -c`, so a quote containing `(`, `'` or `"` dies with a syntax error *before* grep runs, and a candidate whose quote really is in the file gets discarded. `grep` is in rtk's `exclude_commands` anyway, so the hook never rewrites it. No match → discard (*quote not in file*). Match far from `line` → correct `line` to the hit, keep.
 3. `file` inside the Step 0 perimeter, and so is every file named in `evidence.locations` — else discard (*off-perimeter*).
 4. `line` sits on a diff-touched line, or on a direct importer named as the corroborating location — else discard (*off-perimeter*).
 
