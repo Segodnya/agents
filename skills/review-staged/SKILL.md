@@ -86,7 +86,7 @@ python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all
 
 ### 1.1 Tiny diff → no agents
 
-≤3 files **OR** <100 changed lines → run every charter **inline in the main context**, find and verify yourself, skip the spawns entirely. Steps 2–5 still run in full, gate included.
+Up to 3 files **OR** <300 changed lines → run every charter **inline in the main context**, find and verify yourself, skip the spawns entirely. Steps 2–5 still run in full, gate included.
 
 ### 1.2 Shards
 
