@@ -31,9 +31,9 @@ What that split can't see — a contract broken for callers in *another* file, t
 
 **Perimeter = the diff hunks + the files that directly import them.** Reviewers read inside it, the gate discards anything cited outside it.
 
-Navigate by **name**, from a cited line to the one thing it depends on (guard, caller, type def): `goToDefinition` / `findReferences` / `incomingCalls` / `hover` for ts/js/tsx, php, rust, go; `Grep` on a literal symbol or import specifier when LSP can't reach. Grep returns a position, never a survey.
+Navigate by **name**, from a cited line to the one thing it depends on (guard, caller, type def): `goToDefinition` / `findReferences` / `incomingCalls` / `hover` for ts/js/tsx, php, rust, go; `grep`/`rg` via Bash on a literal symbol or import specifier when LSP can't reach. There is no `Grep`/`Glob` tool in this session — quote globs for zsh (`--include='*.ts'`). Grep returns a position, never a survey.
 
-**No repo-wide pattern sweeps** (`Grep` for `\.map\(.*\.find\(` across the tree, `find` over unrelated dirs) — they leave the perimeter and produce claims about untouched code. Who else does this? `findReferences` on the one symbol.
+**No repo-wide pattern sweeps** (`rg` for `\.map\(.*\.find\(` across the tree, `find` over unrelated dirs) — they leave the perimeter and produce claims about untouched code. Who else does this? `findReferences` on the one symbol.
 
 ## Step 0 — Ground
 
@@ -79,7 +79,7 @@ python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all
 1. **Rules** (in order, skip missing): root `CLAUDE.md` + nested ones it references; `AGENTS.md` + nested; `~/.claude/rules/*.md`; `docs/rules/*.md`. Drop any rule file whose frontmatter `paths` globs match none of the reviewable files (no `paths` key = always applies) — otherwise a PHP rulebook rides into a TypeScript review.
 2. **Rules digest — built once, reused by every reviewer.** Copy the surviving rule text **verbatim**, dropping only sections whose scope matches no file in the diff (a `.php` section in a TS-only diff, a CSS section with no stylesheet touched). Never paraphrase, never summarize a rule into your own words — a reviewer citing a rule it can't quote is exactly the failure the gate exists for. Keep the source filename on every kept section, and pass the rule file **paths** alongside the digest so a reviewer can `Read` the original when it needs the full wording.
 3. **Manifest:** which sources loaded / were missing / were skipped as not applicable / were trimmed out of the digest. Zero rules → universal mode (correctness / security / performance only), every `rule_source` tagged `"universal"`.
-4. **Perimeter:** the filtered file list + each file's direct importers (one `Grep` per file on a literal import specifier, or `findReferences` on its exports). Write it down — Step 2 checks against it.
+4. **Perimeter:** the filtered file list + each file's direct importers (one `grep -rl` per file on a literal import specifier, or `findReferences` on its exports). Write it down — Step 2 checks against it.
 5. **Diff:** `git diff <range> -- <file>` per file, kept **per file** — Step 1 hands each reviewer only its own files' hunks. **Bare `git`, never `rtk run git`:** `git` is in rtk's `exclude_commands`, so the Bash hook leaves it alone and the diff already comes through raw — while `rtk run` re-parses argv through `sh -c` and mangles any argument carrying quotes, parens or `;`.
 
 ## Step 1 — Review
@@ -90,7 +90,7 @@ Up to 3 files **OR** <300 changed lines → run every charter **inline in the ma
 
 ### 1.2 Shards
 
-Group the filtered files into shards of **≤4 files** (keep files of one module together when it's free). Spawn **all shard reviewers plus the cross-file reviewer in a single message** (Read + Grep + LSP), `model: "sonnet"` for the shard reviewers — narrow slice, explicit charters, mechanical evidence work; the cross-file reviewer inherits the main model, it judges the change as a whole. Shards coming back consistently empty on a real diff → re-run that shard without the `model` override.
+Group the filtered files into shards of **≤4 files** (keep files of one module together when it's free). Spawn **all shard reviewers plus the cross-file reviewer in a single message** (Read + Bash `grep`/`rg` + LSP), `model: "sonnet"` for the shard reviewers — narrow slice, explicit charters, mechanical evidence work; the cross-file reviewer inherits the main model, it judges the change as a whole. Shards coming back consistently empty on a real diff → re-run that shard without the `model` override.
 
 Each shard reviewer gets: its files' diff hunks, the rules digest + rule file paths, the checklist, the manifest, the perimeter, the prelude, and charters 1–4.
 
