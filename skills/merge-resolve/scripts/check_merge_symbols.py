@@ -21,13 +21,19 @@ CODE_EXT = ('.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.php', '.vue')
 # ponytail: регекс-извлечение определений вместо парсера — берёт JS/TS-методы,
 # object-literal-методы Backbone, классы, const-функции и PHP-функции.
 # Хватает, чтобы поймать дубль и пропажу; если начнёт врать — LSP documentSymbol.
+
+# Список параметров с одним уровнем вложенных скобок: `[^)]*` не проходит сквозь
+# дефолт вида `date = new Date()` и объявляет символ пропавшим. Глубже одного
+# уровня — уже к LSP documentSymbol.
+PARAMS = r'\((?:[^()]|\([^()]*\))*\)'
+
 DEFS = [
     re.compile(r'^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)'),
     re.compile(r'^\s*([A-Za-z_$][\w$]*)\s*:\s*(?:async\s+)?function\b'),
     re.compile(r'^\s*(?:export\s+)?(?:public|private|protected|static|async|function|\s)*?'
-               r'([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::[^{;]+)?\{'),
+               r'([A-Za-z_$][\w$]*)\s*' + PARAMS + r'\s*(?::[^{;]+)?\{'),
     re.compile(r'^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*'
-               r'(?:async\s+)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)'),
+               r'(?:async\s+)?(?:function\b|' + PARAMS + r'\s*=>|[A-Za-z_$][\w$]*\s*=>)'),
 ]
 
 KEYWORDS = {
