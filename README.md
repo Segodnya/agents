@@ -7,7 +7,7 @@
 | [`review-staged`](skills/review-staged) | Параллельный ревью диффа (staged / last / branch / worktree) саб-агентами, шардированными по файлам: каждая находка обязана нести дословную цитату из файла, остальное режет механический гейт; требует МР и чек-лист автора, снимает находки, уже объяснённые в тредах. |
 | [`dev-feedback`](skills/dev-feedback) | Performance feedback на разработчика по merged-МР из GitLab (через `glab`). |
 | [`audit-reply`](skills/audit-reply) | Разбирает комментарии аудитора в GitLab MR и по каждому помогает решить — править код или ответить обоснованием (через `glab`). |
-| [`local-debug`](skills/local-debug) | Расставляет `console.warn`-пробы и диагностирует баг по логам. |
+| [`local-debug`](skills/local-debug) | Расставляет `console.warn`-пробы, а если баг только на билде — сниппеты в консоль прод-сборки; диагностирует по логам. |
 | [`merge-resolve`](skills/merge-resolve) | Разрешает конфликты git (merge / rebase / cherry-pick / stash) по единому плану. |
 | [`perf-review`](skills/perf-review) | Беспощадное performance-ревью работы с Claude Code за N дней. |
 | [`tech-task`](skills/tech-task) | Низкоуровневое ТЗ для фронтенд-задачи. |

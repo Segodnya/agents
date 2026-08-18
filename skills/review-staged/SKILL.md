@@ -308,8 +308,8 @@ Same shape as P0.
 **Save the report.** The full text, verbatim, via `Write` to `/tmp/review-<repo>-<MR-iid|mode>-<YYYYMMDD-HHmm>.md`. Last two lines of the chat message:
 
 ```
-Отчёт: /tmp/review-core_backend-29876-20260801-1420.md
-pbcopy < /tmp/review-core_backend-29876-20260801-1420.md
+Отчёт: /tmp/review-repo-name-29876-20260801-1420.md
+pbcopy < /tmp/review-repo-name-29876-20260801-1420.md
 ```
 
 ≥1 unresolved P0/P1 → also end with `Применить подтверждённые P0/P1? (review-staged fix, или fix 3 7)`. Wait for the user.
