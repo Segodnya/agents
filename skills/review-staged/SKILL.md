@@ -5,12 +5,12 @@ description: Evidence-gated review of a git diff in one of four modes (staged / 
 
 # review-staged — evidence-gated review of a diff
 
-A reviewer emits a **candidate** (a claim) and backs it with **evidence** — lines copied verbatim out of the real file, not out of the diff. The **gate** discards every candidate whose quote isn't in the file. Survivors are **findings** — numbered, and cross-checked against the MR threads.
+A reviewer emits a **candidate** (a claim) and backs it with **evidence** — lines copied verbatim out of the real file, not out of the diff. The **gate** discards every candidate whose quote isn't in the file, then splits the survivors by the revert test: what the diff introduced (or what breaks a checklist promise) becomes a numbered **finding**, cross-checked against the MR threads; what was already broken before the diff becomes a **ticket** (`T1…Tn`) and stays out of this MR.
 
 ```
 Step 0  GROUND    mode + MR + checklist + threads + rules + perimeter
 Step 1  REVIEW    file-shard reviewers + 1 cross-file reviewer → candidates + evidence
-Step 2  GATE      discard unproven / evidence-less / mis-quoted / off-perimeter → findings + tally
+Step 2  GATE      discard unproven / evidence-less / mis-quoted / off-perimeter → findings #N + out-of-scope T + tally
 Step 3  THREADS   match findings against MR discussions → mark the ones already settled
 Step 4  DESIGN    advisory pass over the whole diff
 Step 5  OUTPUT    numbered findings + tally → chat + temp .md
@@ -99,7 +99,11 @@ Each shard reviewer gets: its files' diff hunks, the rules digest + rule file pa
 **Common prelude — prepend to every reviewer prompt:**
 
 > - **Rules = the digest and the rule files it points at.** No rules from memory. Flag a violation only if it's traceable to a line you can quote from those, or is a universal correctness / security / performance principle. Name the rule file in `rule_source`.
-> - **Diff-scope only.** Added/modified hunks in *your* files. No adjacent code, no pre-existing violations, no "while you're here". Exception: a diff-line depending on broken adjacent code the diff also touches.
+> - **Hunt only inside the diff.** Added/modified hunks in *your* files. Never go read adjacent code looking for problems, never sweep the file for pre-existing violations.
+> - **Then answer the scope question on every candidate you return** — two booleans, and you already have what they need:
+>   - `pre_existing` — the revert test: would this defect still be in the file if the diff's lines were removed? Something you proved while checking a diff-line, that turns out to pre-date the diff, is **not dropped** — it's returned with `pre_existing: true` and routed out of the MR into a ticket.
+>   - `breaks_checklist` — does the defect break what the checklist declared done or touched? No checklist (or `--no-mr`) → always `false`.
+>   - **Cap: ≤3 `pre_existing` candidates per reviewer, P0/P1 only.** Style, naming or duplication in code the diff didn't write is noise, not a ticket.
 > - **The checklist is the author's intent.** Behaviour it declares deliberate isn't a defect.
 > - **Trust the linter.** Skip what eslint / stylelint / tsc covers.
 > - **You find *and* prove.** State the claim, then open the real file and check the assumption under it ("`user` can be null here", "`n` is large", "no shared helper exists") — the guard two lines up, the caller, the type, the real size of the collection. Refuted by what you read → drop it yourself and count it in `dropped`. Can't settle it → drop it as `unproven`. Both are cheap and correct; a candidate backed by a quote you didn't copy is the one real failure.
@@ -107,7 +111,7 @@ Each shard reviewer gets: its files' diff hunks, the rules digest + rule file pa
 >   - `evidence.quote` — the lines **copied verbatim** out of the file you just read, enough to make the problem visible (2–10 lines). Not paraphrased, not rebuilt from the diff, not re-indented. The gate greps this back into the file: a typed quote won't match and the candidate dies.
 >   - `evidence.locations` — the `file:line` ranges you opened, including the corroborating one (`"no guard at userCard.tsx:40-58; caller passes raw props at list.tsx:12"`).
 >   - `evidence.repro` — a command that would surface the problem when one exists (`yarn jest x.test.ts -t 'name'`, `tsc --noEmit`, `node -e "…"`, a curl, a URL + click path). **Report it, don't run it.** Omit for claims no command surfaces (naming, duplication, layering).
-> - **`file` + `line` must name a real position inside the perimeter.** A candidate the gate can't locate dies there.
+> - **`file` + `line` must name a real position inside the perimeter.** A candidate the gate can't locate dies there. With `pre_existing: true` the line may sit outside the diff hunks — the file still must be in the perimeter.
 > - Confirmed P0/P1 → add `snippet_after`, the fixed version of the quoted lines. Optional for P2.
 > - [paste "The perimeter" section verbatim]
 
@@ -121,6 +125,8 @@ Return shape — this and nothing else:
     "line": 123,
     "claim": "one sentence: what is wrong and why it breaks",
     "rule_source": "architecture.md | code-style.md | checklist | universal | ...",
+    "pre_existing": false,
+    "breaks_checklist": false,
     "evidence": {
       "quote": "verbatim lines copied from the file",
       "locations": "userCard.tsx:40-58; list.tsx:12",
@@ -193,19 +199,26 @@ Mechanical, main-context, no judgment. Discard on the first failed check, tally 
 1. `evidence.quote` non-empty — else discard (*no evidence*).
 2. **Quote is in the file:** `grep -nF '<longest distinctive line of the quote>' <file>` — **bare `grep`, never `rtk run grep`**. `rtk run` re-parses argv through `sh -c`, so a quote containing `(`, `'` or `"` dies with a syntax error *before* grep runs, and a candidate whose quote really is in the file gets discarded. `grep` is in rtk's `exclude_commands` anyway, so the hook never rewrites it. No match → discard (*quote not in file*). Match far from `line` → correct `line` to the hit, keep.
 3. `file` inside the Step 0 perimeter, and so is every file named in `evidence.locations` — else discard (*off-perimeter*).
-4. `line` sits on a diff-touched line, or on a direct importer named as the corroborating location — else discard (*off-perimeter*).
+4. `line` sits on a diff-touched line, or on a direct importer named as the corroborating location — else discard (*off-perimeter*). **Skipped for `pre_existing: true`**, where an untouched line is the whole point; check 3 still applies in full.
 
-Survivors are **findings**. Bookkeep them:
+Survivors go to one of two buckets — mechanically, by the two scope booleans, no judgment here either:
 
-- **Dedup** by `(file, line, claim similarity)` — across shards too, the cross-file reviewer overlaps by design. Keep the higher severity, the more specific `rule_source`, the longer quote; merge `evidence.locations`.
+- `pre_existing && !breaks_checklist` → **out of scope**. Real, proven, and not this MR's job: the diff didn't write it and the checklist doesn't promise it.
+- everything else → **findings**. A missing `pre_existing` reads as `false`: the candidate came off a diff-touched line and check 4 already said so.
+
+Bookkeep each bucket separately:
+
+- **Dedup** by `(file, line, claim similarity)` — across shards too, the cross-file reviewer overlaps by design. Keep the higher severity, the more specific `rule_source`, the longer quote; merge `evidence.locations`. A claim that landed in both buckets is a finding, not a ticket.
 - **Sort** P0 → P1 → P2, then by file, then by line.
-- **Number** in that order: `#1 … #N`, sequential across all buckets. These numbers are how the user answers («3 и 7 валидны, 5 снимается») and how Step 6 selects.
+- **Number** in that order: findings `#1 … #N`, out-of-scope `T1 … Tn` — two independent sequences. These numbers are how the user answers («3 и 7 валидны, 5 снимается») and how Step 6 selects. T-numbers never enter the headline count.
 
-Tally = the reviewers' own `dropped` counts (*refuted*, *unproven*) + everything discarded here. Carry it into the report. Zero findings → still report the tally and run Steps 4–5.
+Tally = the reviewers' own `dropped` counts (*refuted*, *unproven*) + everything discarded here. Out-of-scope items are routed, not discarded — they don't go in the tally. Carry it into the report. Zero findings → still report the tally and run Steps 4–5.
 
 ## Step 3 — Threads
 
 Skipped under `--no-mr` or when Step 0.4 failed. Threads arrive **after** the gate: a reviewer that reads the author's explanations first stops emitting the candidate at all.
+
+**Findings only — `T1…Tn` are never thread-checked.** They aren't this MR's business, so there's nothing for the author to have answered.
 
 For each finding, look for a thread covering it — same `file` and `new_line` within ±10 lines, or the same claim in prose (a thread may sit on a line that has since moved). Then judge the explanation — don't defer to it, «так задумано» without a reason closes nothing:
 
@@ -239,6 +252,7 @@ The gate only passes quotable defects. Do **one** holistic pass over the diff on
 Rules:
 
 - **Advisory, never a finding** — own section, numbered `D1…D3`, never in the P0/P1/P2 buckets.
+- **A note whose subject pre-dates the diff is a `T`, not a `D`.** Apply the same revert test: if the shape you're questioning would still be there with the diff removed, it's a ticket, not a note on this change. This is the other pipe the "while we're here" advice leaks through.
 - **≤3 necessity notes (1–3) + ≤3 deepening notes (4). Silence is valid.**
 - **Each note = one question + one concrete alternative.** Can't name the simpler path (or the deeper shape)? You don't have a note.
 - **Read-only and one-shot.** No grilling loop, no "which would you like to explore?", no `CONTEXT.md` / ADRs. Point the author to `/improve-codebase-architecture` for a deepening note worth pursuing.
@@ -254,13 +268,15 @@ The quote is the "before" block; `locations` and `repro` go on the `_Прове�
 | header + discard line | ✅ | ✅ |
 | P0, P1 (full, with quotes) | ✅ | ✅ |
 | P2 | full list | one line: `## P2 — Nice to fix (<count>) — в отчёте` |
-| Summary, design notes | ✅ | ✅ |
+| Вне скоупа (`T1…Tn`) | full ticket drafts | one line: `## 🎫 Вне скоупа — отдельным тикетом (<k>) — в отчёте` |
+| Design notes | ✅ | ✅ |
 
 ````markdown
-# Code Review — <N> находок (<M> снято тредами) · режим: <mode> · MR !<iid>
+# Code Review — <N> находок (<M> снято тредами) · вне скоупа: <k> · режим: <mode> · MR !<iid>
 _Applied rules: <list>_ · _Missing: <list or "none">_
 _Чек-лист: принят_ · _Треды: <T> (открытых <O>, резолвленных <R>)_ · _Спека: проверена_
 _Discarded <D> of <T> candidates: <a> unproven, <b> refuted, <c> no evidence, <d> quote not in file, <e> off-perimeter._
+_Прочее: хук сообщил 3 ошибки линтера в `app.ts` · невалидный JSON от shard-2 (4 кандидата не разобраны)_
 
 ## P0 — Must fix (<count>)
 
@@ -290,8 +306,18 @@ Same shape as P0.
 ## P2 — Nice to fix (<count>)
 - **#8 · `file.ts:78`** — claim. _Fix:_ <one-liner> _(source: <rule_source>)_. _Проверено:_ <evidence.locations>.
 
-## Summary
-<2-3 sentences: risk level, headline concerns, merge recommendation.>
+## 🎫 Вне скоупа — отдельным тикетом (<k>)
+> Существовало до этого диффа и не входит в обещания чек-листа. В этой задаче не чиним.
+
+### T1 · P1 · `list.tsx:12`
+**Тикет:** <заголовок в повелительном наклонении>
+**Где:** <evidence.locations>
+**Что:** <claim>
+**Почему не сейчас:** существовало до диффа; дифф трогает <что именно рядом>
+
+```ts
+<evidence.quote>
+```
 
 ## 💭 Design notes (advisory, ungated)
 > Not bugs — questions about the change's intent and shape (Step 4); you may be missing the author's context. Omit the section when there are none.
@@ -302,8 +328,10 @@ Same shape as P0.
 
 - Header flags reflect reality: `_Интент автора: не предоставлен_` under `--no-mr`, `_Спека: не проверялась_` without a checklist, `_Треды: недоступны (<причина>)_` when Step 0.4 failed.
 - The discard line is always present; drop zero-count reasons, write `_Discarded 0 of <T> candidates._` when nothing was gated out.
+- `_Прочее:_` is the home for everything that arrived outside the pipeline (hook output, an unparseable reviewer response). Nothing to say → drop the line entirely. Never a bucket item.
+- `· вне скоупа: <k>` and the whole `🎫` section are dropped when `k = 0`.
 - Right language hint in fences (`ts`, `tsx`, `css`, `twig`, …). Omit empty buckets.
-- Zero findings → `Code Review — no confirmed issues in <N> files / <M> lines.` + header + discard line, in both places.
+- Zero findings → `Code Review — no confirmed issues in <N> files / <M> lines.` + header + discard line, in both places. The `🎫` section still goes to the file when `k > 0` — nothing wrong with *this* diff isn't the same as nothing to ticket.
 
 **Save the report.** The full text, verbatim, via `Write` to `/tmp/review-<repo>-<MR-iid|mode>-<YYYYMMDD-HHmm>.md`. Last two lines of the chat message:
 
@@ -319,7 +347,7 @@ pbcopy < /tmp/review-repo-name-29876-20260801-1420.md
 Triggered **only** by an explicit request after the report: `review-staged fix`, `fix 3 7`, «исправь», «применить», «накати фиксы». Never in the same turn as the report.
 
 1. **Selection:** numbers given → exactly those findings (any severity). No numbers → all confirmed P0/P1, skipping P2.
-2. **Never** findings marked `✅ снято тредом` — unless the user names their number explicitly.
+2. **Never** findings marked `✅ снято тредом`, and **never** `T1…Tn` — unless the user names their number explicitly (`fix T2`). Out-of-scope items exist so this MR doesn't grow; applying one on a bare `fix` is the exact failure the bucket prevents.
 3. `Edit` each file with `evidence.quote` → `snippet_after`. No longer matches (the file drifted)? Skip and report as stale, don't guess.
 4. **Surgical** — exactly what the finding describes. No adjacent cleanups, no reformatting, no renames «заодно».
 5. List what changed (`#N` → `file:line`) and what was skipped (stale / P2 / снято тредом); append the same list to the report file as `## Применено`.
@@ -330,7 +358,8 @@ Triggered **only** by an explicit request after the report: `review-staged fix`,
 - **Two stops, both in Step 0** (mode, MR/checklist). No plan mode, no `ExitPlanMode`, no other slash commands, no questions between Step 1 and the report.
 - **The gate is the only door.** Every reported finding passed all four Step 2 checks with a quote that greps clean — including in the tiny-diff branch. Re-reading the diff is not verification; the quote comes out of the real file.
 - **The digest never replaces the rule text.** It's the same lines, minus the inapplicable sections. A `rule_source` you can't point at a real line in a real file is `"universal"` or it's nothing.
-- **Hook output is not a task.** Anything a `Stop` / `PostToolUse` hook prints (eslint, stylelint, tsc, prettier) arrives outside the pipeline and never passed the gate. Don't fix code because of it, don't add it to the buckets, don't start another round. At most one line in the Summary: «хук сообщил: N ошибок линтера в `<file>`». Edits only on explicit request.
-- **Design notes (Step 4) are the only ungated text** in the report; never in the P0/P1/P2 buckets.
+- **Hook output is not a task.** Anything a `Stop` / `PostToolUse` hook prints (eslint, stylelint, tsc, prettier) arrives outside the pipeline and never passed the gate. Don't fix code because of it, don't add it to the buckets, don't start another round. At most a clause on the `_Прочее:_` line: «хук сообщил: N ошибок линтера в `<file>`». Edits only on explicit request.
+- **Design notes (Step 4) are the only ungated text** in the report; never in the P0/P1/P2 or `T` buckets — `T` items passed the same gate as findings, they're just routed out of this MR.
+- **Scope is decided by the revert test, not by taste.** A defect the diff introduced, or one that breaks a checklist promise, is a finding. Everything else that's real goes to `T` — never into P0/P1/P2, never into the chat body, never into a bare `fix`. "Раз уж мы рядом" is a ticket.
 - Cite rules by filename via `rule_source`; never restate rule files in the report.
-- Invalid JSON from a reviewer → note it in the Summary, count its candidates in the tally as *unparseable*, continue with the rest.
+- Invalid JSON from a reviewer → note it on the `_Прочее:_` line, count its candidates in the tally as *unparseable*, continue with the rest.
