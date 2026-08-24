@@ -90,7 +90,7 @@ Up to 3 files **OR** <300 changed lines → run every charter **inline in the ma
 
 ### 1.2 Shards
 
-Group the filtered files into shards of **≤4 files** (keep files of one module together when it's free). Spawn **all shard reviewers plus the cross-file reviewer in a single message** (Read + Bash `grep`/`rg` + LSP), `model: "sonnet"` for the shard reviewers — narrow slice, explicit charters, mechanical evidence work; the cross-file reviewer inherits the main model, it judges the change as a whole. Shards coming back consistently empty on a real diff → re-run that shard without the `model` override.
+Group the filtered files into shards of **≤4 files** (keep files of one module together when it's free). Spawn **all shard reviewers plus the cross-file reviewer in a single message** (Read + Bash `grep`/`rg` + LSP), `model: "sonnet"` for the shard reviewers — narrow slice, explicit charters, mechanical evidence work; the cross-file reviewer inherits the main model, it judges the change as a whole. Re-run a shard without the `model` override **only** when it returns `candidates: []` **and** `dropped.refuted + dropped.unproven == 0` — it emitted no claim at all, so it never looked. An empty shard with a non-zero `dropped` is the correct answer, not a weak model: it found candidates and refuted them itself, and re-running it on the main model pays for both passes to reach the same nothing.
 
 Each shard reviewer gets: its files' diff hunks, the rules digest + rule file paths, the checklist, the manifest, the perimeter, the prelude, and charters 1–4.
 
