@@ -94,6 +94,8 @@ Group the filtered files into shards of **≤4 files** (keep files of one module
 
 Each shard reviewer gets: its files' diff hunks, the rules digest + rule file paths, the checklist, the manifest, the perimeter, the prelude, and charters 1–4.
 
+**After the spawn message, emit nothing until a report lands.** The reviewers are async: the notification arrives on its own, and until it does there is no work for the main context. No filler Bash (`echo ok`, `echo waiting`, `sleep`, `date`), no status narration («waiting on shards 5–8», «reviewers are running»), no starting your own read of the shards' files "meanwhile" — Step 4 runs after the gate, and everything the main context needs was collected in Step 0. Each idle turn re-reads the whole main context — 150–190k by this point — to produce nothing: two runs on 2026-08-24 burned 216 and 114 such turns, 33.5M and ~20M tokens, 77% and 93% of those runs. The only allowed turn in the wait window is gating a report that has already arrived.
+
 **Threads and previous-round reports stay in the main context — never in a shard prompt.** A reviewer that reads the author's explanations, or last round's finding list, stops emitting the candidate instead of proving it, and the gate then has nothing to check. Deciding what was already answered is done **once**, in Step 3, over the deduped finding list — not N times in parallel over raw candidates.
 
 **Common prelude — prepend to every reviewer prompt:**
@@ -355,6 +357,7 @@ Triggered **only** by an explicit request after the report: `review-staged fix`,
 
 ## Hard constraints
 
+- **The wait window is not work.** Once the reviewers are dispatched, the only turn allowed is gating a report that already arrived — no filler Bash, no status lines, no "meanwhile" investigation (Step 1.2).
 - **Two stops, both in Step 0** (mode, MR/checklist). No plan mode, no `ExitPlanMode`, no other slash commands, no questions between Step 1 and the report.
 - **The gate is the only door.** Every reported finding passed all four Step 2 checks with a quote that greps clean — including in the tiny-diff branch. Re-reading the diff is not verification; the quote comes out of the real file.
 - **The digest never replaces the rule text.** It's the same lines, minus the inapplicable sections. A `rule_source` you can't point at a real line in a real file is `"universal"` or it's nothing.
