@@ -392,6 +392,8 @@ def main():
     parser.add_argument("--hostname", required=True)
     parser.add_argument("--mrs-json", required=True, help="файл с выводом fetch_mrs.py, либо '-' для stdin")
     parser.add_argument("--tz-offset", type=float, default=3.0, help="смещение рабочей зоны от UTC (default: 3 = MSK)")
+    parser.add_argument("--identity", action="append", default=[],
+                        help="доп. подпись коммитов (имя или почта); можно повторять — профиль GitLab может их не отдавать")
     args = parser.parse_args()
 
     raw = sys.stdin.read() if args.mrs_json == "-" else open(args.mrs_json, encoding="utf-8").read()
@@ -400,6 +402,7 @@ def main():
     tz = timezone(timedelta(hours=args.tz_offset))
     now = datetime.now(tz)
     tokens = identity_tokens(args.username, args.hostname)
+    tokens |= {t.lower() for t in args.identity}
 
     rows, warnings, identities = [], [], {}
     for i, mr in enumerate(mrs, 1):
