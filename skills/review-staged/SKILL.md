@@ -92,7 +92,7 @@ Spawn all four **in one message** (three under `--no-spec` — D is skipped), `m
 
 ### B · Rules & smells (+ design notes)
 
-**Rules** — user-scoped `~/.claude/CLAUDE.md` + `~/.claude/rules/*.md`, the project's `CLAUDE.md` / `AGENTS.md`, **plus the repo's path-scoped rules**: those are *not* auto-injected into a subagent, so pull them yourself —
+**Rules** — user-scoped `~/.claude/CLAUDE.md` + `~/.claude/rules/*.md`, the project's `CLAUDE.md` / `AGENTS.md`, **plus the repo's path-scoped rules** (`paths:` frontmatter): auto-injection is not a channel you can rely on — it fires only on a `Read` of a matching file, and never inside a subagent — so pull them yourself, inline branch included —
 
 ```bash
 head -8 <repo>/.claude/rules/**/*.md 2>/dev/null   # also .agents/rules/, .cursor/rules/
