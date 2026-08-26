@@ -151,6 +151,7 @@ Full text to the file; chat gets the same minus P2 and ticket bodies (each colla
 
 ````markdown
 # Code Review — <N> находок (<M> снято тредами) · вне скоупа: <k> · режим: <mode> · MR !<iid>
+
 _Треды: <Th> (открытых <O>)_ · _Чек-лист: принят_
 _Discarded <D> of <C> candidates: <a> unproven, <b> refuted, <c> no evidence, <d> quote not in file, <e> off-perimeter, <f> unparseable._
 _Прочее: <всё, что пришло мимо пайплайна — хук, невалидный JSON от ревьюера>_
@@ -166,19 +167,23 @@ _Прочее: <всё, что пришло мимо пайплайна — ху
 _Проверено:_ <locations> · _repro:_ `<repro>` · _(source: <rule_source>)_.
 
 ### #2 · `file.ts:40` — claim ✅ снято тредом #7
+
 > @<author>: «<цитата>»
 _Оценка:_ <почему закрывает>.
 
 ## P1 — Should fix (<count>)
+
 Same shape.
 
 ## P2 — Nice to fix (<count>)
+
 - **#8 · `file.ts:78`** — claim _(source: <rule_source>)_.
 
 ## 🎫 Вне скоупа — отдельным тикетом (<k>)
 > Существовало до этого диффа. В этой задаче не чиним.
 
 ### T1 · P1 · `list.tsx:12`
+
 **Тикет:** <заголовок в повелительном наклонении>
 **Что:** <claim> · **Где:** <locations>
 **Почему не сейчас:** существовало до диффа; дифф трогает <что рядом>
