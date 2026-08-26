@@ -92,7 +92,13 @@ Spawn all four **in one message** (three under `--no-spec` — D is skipped), `m
 
 ### B · Rules & smells (+ design notes)
 
-**Rules** — only those already in context: global `CLAUDE.md`, `rules/*.md`, the project's `CLAUDE.md` / `AGENTS.md`. Nothing from memory: quote the rule line, name its file in `rule_source`.
+**Rules** — user-scoped `~/.claude/CLAUDE.md` + `~/.claude/rules/*.md`, the project's `CLAUDE.md` / `AGENTS.md`, **plus the repo's path-scoped rules**: those are *not* auto-injected into a subagent, so pull them yourself —
+
+```bash
+head -8 <repo>/.claude/rules/**/*.md 2>/dev/null   # also .agents/rules/, .cursor/rules/
+```
+
+`cat` the ones whose frontmatter `paths:` globs match a changed file. No rules dir → skip. Nothing from memory — an unread rule is not a rule. Cite as `rule_source: "<rule file>: «<the rule line, verbatim>»"`; the gate greps that line back.
 
 **Smells** — Fowler's catalogue: Mysterious Name, Duplicated Code, Feature Envy, Data Clumps, Primitive Obsession, Repeated Switches, Shotgun Surgery, Divergent Change, Speculative Generality, Message Chains, Middle Man, Refused Bequest. `P2` unless it bites; a documented rule overrides it; skip what tooling enforces. Name the smell, quote the hunk.
 
@@ -126,7 +132,8 @@ Mechanical, no judgment. Discard on the first failure and tally the reason:
 
 1. `evidence.quote` non-empty — else *no evidence*.
 2. `grep -nF '<longest distinctive line of the quote>' <file>` — **bare `grep`, never `rtk run grep`** (`sh -c` re-parse kills a quote with `(`, `'`, `"`). No match → *quote not in file*. Match far from `line` → fix `line`, keep.
-3. `file` and every file in `locations` is in the diff or directly imports a diff file — else *off-perimeter*. Exception: a `rule_source: "checklist"` absence may point at the paired place, wherever it lives.
+3. `rule_source` names a `.md` file → `grep -nF '<its «…» line>' <that file>`. No match → *rule not in file*. `smell:` / `checklist` / `universal` skip this check.
+4. `file` and every file in `locations` is in the diff or directly imports a diff file — else *off-perimeter*. Exception: a `rule_source: "checklist"` absence may point at the paired place, wherever it lives.
 
 Route by the revert test: `pre_existing: true` → ticket `T`; else finding `#`.
 
@@ -153,7 +160,7 @@ Full text to the file; chat gets the same minus P2 and ticket bodies (each colla
 # Code Review — <N> находок (<M> снято тредами) · вне скоупа: <k> · режим: <mode> · MR !<iid>
 
 _Треды: <Th> (открытых <O>)_ · _Чек-лист: принят_
-_Discarded <D> of <C> candidates: <a> unproven, <b> refuted, <c> no evidence, <d> quote not in file, <e> off-perimeter, <f> unparseable._
+_Discarded <D> of <C> candidates: <a> unproven, <b> refuted, <c> no evidence, <d> quote not in file, <e> rule not in file, <f> off-perimeter, <g> unparseable._
 _Прочее: <всё, что пришло мимо пайплайна — хук, невалидный JSON от ревьюера>_
 
 ## P0 — Must fix (<count>)
