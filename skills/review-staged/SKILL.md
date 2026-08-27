@@ -6,10 +6,10 @@ description: Review of a git diff in one of four modes (staged / last commit / b
 # review-staged
 
 ```
-1 GROUND     mode → diff · MR · checklist
+1 GROUND     mode → diff · rules · MR · checklist
 2 REVIEW     4 agents in parallel → candidates + evidence
 3 GATE       quote check → findings #1…#N + tickets T1…Tn
-4 THREADS    mark findings the MR discussion already settled
+4 THREADS    mark findings + design notes the MR discussion already settled
 5 REPORT     chat + temp .md
 ```
 
@@ -36,7 +36,17 @@ git diff <range> > /tmp/review-staged-<repo>-<branch>/diff   # bare git, never `
 
 Drop from the file list: binaries, `*.lock` / `*-lock.json`, `dist/` `build/` `.next/` `out/`, `*.min.*`, `*.snap`, vendored dirs.
 
-**MR** — URL in the invocation, else `glab mr list --source-branch $(git branch --show-current)` and confirm. Neither, and no `--no-mr` → stop and ask. Fetch threads **to a file, don't read them** (step 4 reads them). `SKILL_DIR` = the absolute path from the harness's `Base directory for this skill:` line, not cwd:
+**Rules** — the repo's path-scoped rules (`paths:` frontmatter in `.claude/rules` / `.agents/rules` / `.cursor/rules`) are collected **here, by you**, never by a reviewer. Auto-injection is not a channel: it fires only on a native `Read` of a matching file — not on `cat`/`sed` — and never inside a subagent. `SKILL_DIR` = the absolute path from the harness's `Base directory for this skill:` line, not cwd:
+
+```bash
+git diff <range> --name-only \
+  | python3 "SKILL_DIR/scripts/match_rules.py" <repo-root> \
+  > /tmp/review-staged-<repo>-<branch>/rules.md
+```
+
+stderr prints `matched <k> of <n>` and both lists — that line goes into the report header verbatim. `matched 0` or no rules dir → the file stays empty and the header says `_Applied rules: нет path-scoped правил_`; that is a valid outcome, inventing one is not.
+
+**MR** — URL in the invocation, else `glab mr list --source-branch $(git branch --show-current)` and confirm. Neither, and no `--no-mr` → stop and ask. Fetch threads **to a file, don't read them** (step 4 reads them):
 
 ```bash
 python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all \
@@ -49,9 +59,9 @@ python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all \
 
 ## 2. Reviewers
 
-Spawn all four **in one message** (three under `--no-spec` — D is skipped), `model: "sonnet"` on each. Each gets: the literal path to `RS_DIR/diff` (it `cat`s it itself), the file list, the checklist text inline. Never the threads.
+Spawn all four **in one message** (three under `--no-spec` — D is skipped), `model: "sonnet"` on each. Each gets: the literal path to `RS_DIR/diff` (it `cat`s it itself), the file list, the checklist text inline. Never the threads. `RS_DIR/rules.md` goes to **B only** — no other charter reads it.
 
-≤3 files **or** <300 changed lines → run the same charters inline yourself, skip the spawns. Steps 3–5 unchanged.
+≤3 files **or** <300 changed lines → run the same charters inline yourself. The inline branch skips the *spawns*, nothing else: steps 1 and 3–5 unchanged, `cat RS_DIR/rules.md` before the B axis exactly as a reviewer would.
 
 **Prelude — prepend to every reviewer:**
 
@@ -92,13 +102,13 @@ Spawn all four **in one message** (three under `--no-spec` — D is skipped), `m
 
 ### B · Rules & smells (+ design notes)
 
-**Rules** — user-scoped `~/.claude/CLAUDE.md` + `~/.claude/rules/*.md`, the project's `CLAUDE.md` / `AGENTS.md`, **plus the repo's path-scoped rules** (`paths:` frontmatter): auto-injection is not a channel you can rely on — it fires only on a `Read` of a matching file, and never inside a subagent — so pull them yourself, inline branch included —
+**Rules** — the repo's path-scoped rules, already collected for you:
 
 ```bash
-head -8 <repo>/.claude/rules/**/*.md 2>/dev/null   # also .agents/rules/, .cursor/rules/
+cat /tmp/review-staged-<repo>-<branch>/rules.md   # literal path comes in the prompt
 ```
 
-`cat` the ones whose frontmatter `paths:` globs match a changed file. No rules dir → skip. Nothing from memory — an unread rule is not a rule. Cite as `rule_source: "<rule file>: «<the rule line, verbatim>»"`; the gate greps that line back.
+Read it **in full** before the first candidate — pre-filtered to the changed files, `===== RULE FILE: <path> =====` separates them. Empty or absent → don't go looking. On top of it: `~/.claude/CLAUDE.md` + `~/.claude/rules/*.md`, the project's `CLAUDE.md` / `AGENTS.md`. Nothing from memory — an unread rule is not a rule. Cite as `rule_source: "<rule file>: «<the rule line, verbatim>»"`, path as printed in the separator; the gate greps that line back.
 
 **Smells** — Fowler's catalogue: Mysterious Name, Duplicated Code, Feature Envy, Data Clumps, Primitive Obsession, Repeated Switches, Shotgun Surgery, Divergent Change, Speculative Generality, Message Chains, Middle Man, Refused Bequest. `P2` unless it bites; a documented rule overrides it; skip what tooling enforces. Name the smell, quote the hunk.
 
@@ -124,7 +134,7 @@ Skipped under `--no-spec`. `rule_source: "checklist"`. Check **both directions**
 - **Promised, absent from the diff** — P0 if the checklist says it was fixed, P1 if it says it was touched.
 - **In the diff, not promised** — a behaviour change the tester doesn't know to check (P1). Pure refactors don't count.
 
-An absence has no quote: quote **the place where it should have been** (sibling branch, handler, validation of the paired case) — read it first, it may turn out handled — and put the checklist's test case in `repro`. Can't name that place → no candidate.
+An absence has no quote: quote **the place where it should have been** (sibling branch, handler, validation of the paired case) — read it first, it may turn out handled — and put the checklist's test case in `repro`. Can't name the place → no candidate.
 
 ## 3. Gate
 
@@ -143,12 +153,23 @@ Tally = the reviewers' own `dropped` + everything discarded here. Tickets are ro
 
 ## 4. Threads
 
-Skipped under `--no-mr`. Read `RS_DIR/threads.json` **here, for the first time**. Findings only — tickets are never thread-checked.
+Skipped under `--no-mr`. Read `RS_DIR/threads.json` **here, for the first time**. Findings **and design notes** go through this step — tickets never do.
+
+Read it in two passes, with the script — never `cat`, never a `jq`/`python3` one-liner of your own (a 76 KB dump is normal: a root note carries the previous round's pasted report):
+
+```bash
+python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" /tmp/review-staged-<repo>-<branch>/threads.json          # index
+python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" /tmp/review-staged-<repo>-<branch>/threads.json 3 7 12   # full text
+```
+
+The index is for **selecting** a thread, never for judging it. Pull the full text of every thread whose file matches a finding's or a note's file, plus every general thread — in one call, all numbers at once. Bodies come out whole; **no slicing, no `[:600]`** — the reviewer dictates the shape of the fix in the tail of the thread.
 
 Match by `file` + `new_line` ±10, or by the same claim in prose. Judge the explanation — «так задумано» without a reason closes nothing:
 
 - **Closes it** → keeps its number, gets `✅ снято тредом #<n>` with the author's quote and one line of why it's accepted; subtracted from the headline count.
 - **Doesn't** → stays a finding + one line on why the answer doesn't cover the case.
+
+Design notes have a lower bar: any thread that argued the same claim either way **kills the note** — it goes to `_Прочее:_` as «D<n> снят тредом #<n>», never re-asked with `✅`. A note no thread touched stays. Last round's report is itself a thread root, so a note repeating what you asked last round is settled, not new.
 
 A re-reviewed MR carries last round's report as a thread root (`# Code Review — <N> находок`). No reply under it → keep the finding, mark «повтор #<n>, без ответа автора». Numbering doesn't carry over between rounds.
 
@@ -159,7 +180,7 @@ Full text to the file; chat gets the same minus P2 and ticket bodies (each colla
 ````markdown
 # Code Review — <N> находок (<M> снято тредами) · вне скоупа: <k> · режим: <mode> · MR !<iid>
 
-_Треды: <Th> (открытых <O>)_ · _Чек-лист: принят_
+_Треды: <Th> (открытых <O>)_ · _Чек-лист: принят_ · _Applied rules: <the `matched <k> of <n>` line from step 1>_
 _Discarded <D> of <C> candidates: <a> unproven, <b> refuted, <c> no evidence, <d> quote not in file, <e> rule not in file, <f> off-perimeter, <g> unparseable._
 _Прочее: <всё, что пришло мимо пайплайна — хук, невалидный JSON от ревьюера>_
 
@@ -199,7 +220,7 @@ Same shape.
 <evidence.quote>
 ```
 
-## 💭 Design notes (advisory, ungated)
+## 💭 Design notes (advisory, no quote gate — но через треды)
 - **D1 · Needed?** question + concrete alternative
 ````
 
@@ -222,7 +243,8 @@ pbcopy < /tmp/review-repo-29876-20260825-1420.md
 - After the spawn message emit nothing until a report lands — no `echo`/`sleep`/`date`, no status narration, no "meanwhile" reading.
 - Threads and previous reports never go into a reviewer prompt.
 - The gate is the only door, inline branch included — the quote comes out of the real file, not the diff.
+- Path-scoped rules are collected in step 1 and consumed from `RS_DIR/rules.md`. A rules dir that exists and was never read is a broken run, not a lighter one.
 - Scope is the revert test, not taste. «Раз уж мы рядом» → ticket.
 - Hook output is not a task — at most a clause on `_Прочее:_`.
-- Design notes are the only ungated text in the report.
+- Design notes skip the quote gate, but never the thread check (step 4).
 - Invalid JSON from a reviewer → note it on `_Прочее:_`, count its candidates as *unparseable*, continue.

@@ -81,7 +81,7 @@ def thread_is_open(notes):
 def shorten(text, limit=40000):
     """Root notes carry pasted review reports (observed 12.8K/16.2K/23.6K/31.9K chars);
     the old 4000 cap cut them to ~12%, so a re-review re-reported what was already settled.
-    Replies stay at the explicit 2000 — no report has ever landed in one."""
+    Replies share the cap: the shape of a fix is dictated in the tail of a thread."""
     if text and len(text) > limit:
         return text[:limit] + f"\n... [truncated, {len(text)} chars total]"
     return text or ""
@@ -156,7 +156,7 @@ def main():
             "replies": [
                 {
                     "author": (r.get("author") or {}).get("username", ""),
-                    "body": shorten(r.get("body", ""), 2000),
+                    "body": shorten(r.get("body", "")),
                     "created_at": (r.get("created_at") or "")[:10],
                 }
                 for r in replies
