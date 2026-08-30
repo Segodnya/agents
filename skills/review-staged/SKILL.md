@@ -59,12 +59,13 @@ python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all \
 
 ## 2. Reviewers
 
-Spawn all four **in one message** (three under `--no-spec` — D is skipped), `model: "sonnet"` on each. Each gets: the literal path to `RS_DIR/diff` (it `cat`s it itself), the file list, the checklist text inline. Never the threads. `RS_DIR/rules.md` goes to **B only** — no other charter reads it.
+Spawn all four **in one message** (three under `--no-spec` — D is skipped), `model: "sonnet"` on each. Each gets: the literal path to `RS_DIR/diff`, the file list, the checklist text inline. Never the threads. `RS_DIR/rules.md` goes to **B only** — no other charter reads it.
 
 ≤3 files **or** <300 changed lines → run the same charters inline yourself. The inline branch skips the *spawns*, nothing else: steps 1 and 3–5 unchanged, `cat RS_DIR/rules.md` before the B axis exactly as a reviewer would.
 
 **Prelude — prepend to every reviewer:**
 
+> - Read `RS_DIR/diff` **once**, at the start of your work. After that go by what is already in your context — re-reading the same file adds nothing and costs the whole diff again. Need one fragment back → `Read` with `offset`/`limit`, or `sed -n 'A,Bp'`, never the file whole.
 > - Hunt inside the diff. Read adjacent code only to check a claim about a diff line.
 > - State the claim, then open the real file and check the assumption under it (guard above, caller, type, actual collection size). Refuted → `dropped.refuted`. Can't settle → `dropped.unproven`.
 > - `evidence.quote` mandatory — 2–10 lines copied verbatim out of the file, not retyped. The gate greps it back.
