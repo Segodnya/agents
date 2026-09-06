@@ -148,7 +148,7 @@ Mechanical, no judgment. Discard on the first failure and tally the reason:
 
 Route by the revert test: `pre_existing: true` → ticket `T`; else finding `#`.
 
-Dedup by `(file, line, claim)` across reviewers — keep the higher severity, the longer quote, merge `locations`; a claim in both buckets is a finding. Sort P0 → P1 → P2, then file, then line. Number `#1…#N` and `T1…Tn` as two independent sequences.
+Dedup by `(file, line ±5)` across reviewers, **before** the gate — `claim` text never matches verbatim, so it is not part of the key; two candidates on the same lines from different reviewers are one candidate. Keep the higher severity, the longer quote, merge `locations` and `claim`s; a claim in both buckets is a finding. Sort P0 → P1 → P2, then file, then line. Number `#1…#N` and `T1…Tn` as two independent sequences.
 
 Tally = the reviewers' own `dropped` + everything discarded here. Tickets are routed, not discarded.
 

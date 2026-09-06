@@ -111,7 +111,7 @@ Mechanical, no judgment. Discard on the first failure and tally the reason:
 4. `repro.steps` non-empty and phrased as a user action or external request, not an internal call — else *no repro*.
 5. `entry` resolves to a line under `## Входные точки` in `map.md` → **Баги**. Doesn't resolve → **Подозрения**, no ticket.
 
-Dedup by `(file, line, claim)` across axes — higher severity, longer quote, merged `locations`, both `axis` values. Sort P0 → P1 → P2, file, line; `#1…#N` and `S1…Sn` are independent sequences. Tally = the hunters' own `dropped` + everything discarded here.
+Dedup by `(file, line ±5)` across axes, **before** the gate — `claim` text never matches verbatim, so it is not part of the key; two candidates on the same lines from different axes are one candidate. Higher severity, longer quote, merged `locations` and `claim`s, both `axis` values. Sort P0 → P1 → P2, file, line; `#1…#N` and `S1…Sn` are independent sequences. Tally = the hunters' own `dropped` + everything discarded here.
 
 ## 5. Report
 
