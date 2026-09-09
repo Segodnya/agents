@@ -26,12 +26,17 @@ Invocation: `review-staged [staged|last|branch|worktree] [--no-mr] [--no-spec]`.
 
 `<base>` from `git symbolic-ref --short refs/remotes/origin/HEAD` minus `origin/`, else `master`. No argument → `AskUserQuestion` with the four modes.
 
-`RS_DIR` = `/tmp/review-staged-<repo>-<branch>`. Substitute that **literal** path into every command — shell state doesn't survive between `Bash` calls, `$VAR` won't work.
+`RS_DIR` — a fresh dir per run, stamped with the launch time so two reviews of the same repo on the same day never collide:
 
 ```bash
-mkdir -p /tmp/review-staged-<repo>-<branch>
-git diff <range> --name-only | tee /tmp/review-staged-<repo>-<branch>/files.txt   # empty → stop: "нет изменений в режиме <mode>"
-git diff <range> > /tmp/review-staged-<repo>-<branch>/diff   # bare git, never `rtk run git`
+D=/tmp/review-staged-<repo>-<branch>-$(date +%Y%m%d-%H%M%S); mkdir -p "$D"; echo "$D"   # prints e.g. /tmp/review-staged-repo-fix-auth-20260909-143507
+```
+
+Copy the printed path **verbatim** and substitute it as a **literal** into every later command — shell state doesn't survive between `Bash` calls, `$VAR` won't work. Never reuse a path from an earlier run or from memory.
+
+```bash
+git diff <range> --name-only | tee RS_DIR/files.txt   # empty → stop: "нет изменений в режиме <mode>"
+git diff <range> > RS_DIR/diff   # bare git, never `rtk run git`
 ```
 
 `files.txt` is the **only** source of paths for step 2. `git diff --stat` abbreviates a long path to `.../react/pages/Bo…` — a path retyped from it is a path that doesn't exist, and the reviewer silently reviews nothing. Never `--stat`, never `| head`/`| tail` on the list.
@@ -42,8 +47,8 @@ Drop from the file list: binaries, `*.lock` / `*-lock.json`, `dist/` `build/` `.
 
 ```bash
 python3 "SKILL_DIR/scripts/match_rules.py" <repo-root> \
-  < /tmp/review-staged-<repo>-<branch>/files.txt \
-  > /tmp/review-staged-<repo>-<branch>/rules.md
+  < RS_DIR/files.txt \
+  > RS_DIR/rules.md
 ```
 
 stderr prints `matched <k> of <n>` and both lists — that line goes into the report header verbatim. `matched 0` or no rules dir → the file stays empty and the header says `_Applied rules: нет path-scoped правил_`; that is a valid outcome, inventing one is not.
@@ -52,7 +57,7 @@ stderr prints `matched <k> of <n>` and both lists — that line goes into the re
 
 ```bash
 python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all \
-  > /tmp/review-staged-<repo>-<branch>/threads.json
+  > RS_DIR/threads.json
 ```
 
 `--all` is mandatory — resolved threads are exactly «уже обсудили». No `audit-reply` → `glab api "projects/:id/merge_requests/<iid>/discussions"` into the same file. Fails → skip step 4, say so in the header.
@@ -108,7 +113,7 @@ Spawn all four **in one message** (three under `--no-spec` — D is skipped), `m
 **Rules** — the repo's path-scoped rules, already collected for you:
 
 ```bash
-cat /tmp/review-staged-<repo>-<branch>/rules.md   # literal path comes in the prompt
+cat RS_DIR/rules.md   # literal path comes in the prompt
 ```
 
 Read it **in full** before the first candidate — pre-filtered to the changed files, `===== RULE FILE: <path> =====` separates them. Empty or absent → don't go looking. On top of it: `~/.claude/CLAUDE.md` + `~/.claude/rules/*.md`, the project's `CLAUDE.md` / `AGENTS.md`. Nothing from memory — an unread rule is not a rule. Cite as `rule_source: "<rule file>: «<the rule line, verbatim>»"`, path as printed in the separator; the gate greps that line back.
@@ -161,8 +166,8 @@ Skipped under `--no-mr`. Read `RS_DIR/threads.json` **here, for the first time**
 Read it in two passes, with the script — never `cat`, never a `jq`/`python3` one-liner of your own (a 76 KB dump is normal: a root note carries the previous round's pasted report):
 
 ```bash
-python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" /tmp/review-staged-<repo>-<branch>/threads.json          # index
-python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" /tmp/review-staged-<repo>-<branch>/threads.json 3 7 12   # full text
+python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" RS_DIR/threads.json          # index
+python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" RS_DIR/threads.json 3 7 12   # full text
 ```
 
 The index is for **selecting** a thread, never for judging it. Pull the full text of every thread whose file matches a finding's or a note's file, plus every general thread — in one call, all numbers at once. Bodies come out whole; **no slicing, no `[:600]`** — the reviewer dictates the shape of the fix in the tail of the thread.
@@ -231,11 +236,11 @@ Same shape.
 - Drop zero-count discard reasons, the `🎫` section when `k = 0`, and empty buckets. Right language hint in fences.
 - Zero findings → `Code Review — no confirmed issues in <files> files / <lines> lines.` + header + discard line; the 🎫 section still goes to the file.
 
-Save the full text verbatim via `Write` to `/tmp/review-<repo>-<iid|mode>-<YYYYMMDD-HHmm>.md`, and end the chat message with:
+Save the full text verbatim via `Write` to `RS_DIR/review-<repo>-<iid|mode>.md` — inside `RS_DIR`, so its timestamp keeps runs of the same day apart. End the chat message with:
 
 ```
-Отчёт: /tmp/review-repo-29876-20260825-1420.md
-pbcopy < /tmp/review-repo-29876-20260825-1420.md
+Отчёт: /tmp/review-staged-repo-fix-auth-20260909-143507/review-repo-29876.md
+pbcopy < /tmp/review-staged-repo-fix-auth-20260909-143507/review-repo-29876.md
 ```
 
 ## Hard constraints
