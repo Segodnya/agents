@@ -30,17 +30,19 @@ Invocation: `review-staged [staged|last|branch|worktree] [--no-mr] [--no-spec]`.
 
 ```bash
 mkdir -p /tmp/review-staged-<repo>-<branch>
-git diff <range> --name-only          # empty → stop: "нет изменений в режиме <mode>"
+git diff <range> --name-only | tee /tmp/review-staged-<repo>-<branch>/files.txt   # empty → stop: "нет изменений в режиме <mode>"
 git diff <range> > /tmp/review-staged-<repo>-<branch>/diff   # bare git, never `rtk run git`
 ```
+
+`files.txt` is the **only** source of paths for step 2. `git diff --stat` abbreviates a long path to `.../react/pages/Bo…` — a path retyped from it is a path that doesn't exist, and the reviewer silently reviews nothing. Never `--stat`, never `| head`/`| tail` on the list.
 
 Drop from the file list: binaries, `*.lock` / `*-lock.json`, `dist/` `build/` `.next/` `out/`, `*.min.*`, `*.snap`, vendored dirs.
 
 **Rules** — the repo's path-scoped rules (`paths:` frontmatter in `.claude/rules` / `.agents/rules` / `.cursor/rules`) are collected **here, by you**, never by a reviewer. Auto-injection is not a channel: it fires only on a native `Read` of a matching file — not on `cat`/`sed` — and never inside a subagent. `SKILL_DIR` = the absolute path from the harness's `Base directory for this skill:` line, not cwd:
 
 ```bash
-git diff <range> --name-only \
-  | python3 "SKILL_DIR/scripts/match_rules.py" <repo-root> \
+python3 "SKILL_DIR/scripts/match_rules.py" <repo-root> \
+  < /tmp/review-staged-<repo>-<branch>/files.txt \
   > /tmp/review-staged-<repo>-<branch>/rules.md
 ```
 
@@ -55,13 +57,13 @@ python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all \
 
 `--all` is mandatory — resolved threads are exactly «уже обсудили». No `audit-reply` → `glab api "projects/:id/merge_requests/<iid>/discussions"` into the same file. Fails → skip step 4, say so in the header.
 
-**Checklist** — pasted by the user, never generated from the diff. Missing and no `--no-spec` → ask and wait.
+**Checklist** — pasted by the user, never generated from the diff. Missing and no `--no-spec` → ask and wait. Save it **verbatim** via `Write` to `RS_DIR/checklist.md` — exactly as pasted, same line breaks, nothing shortened, nothing merged, no clause dropped. Reviewers read that file; a checklist retold in your own words is the same failure as a path retyped from a `--stat`. Under `--no-spec` there is no checklist and the file isn't created.
 
 ## 2. Reviewers
 
-Spawn all four **in one message** (three under `--no-spec` — D is skipped), `model: "sonnet"` on each. Each gets: the literal path to `RS_DIR/diff`, the file list, the checklist text inline. Never the threads. `RS_DIR/rules.md` goes to **B only** — no other charter reads it.
+Spawn all four **in one message** (three under `--no-spec` — D is skipped), `model: "sonnet"` on each. Each gets: the literal path to `RS_DIR/diff`, the file list **copied verbatim from `RS_DIR/files.txt`** (`cat` it if it's no longer in context — never retype paths from memory or from a stat), the literal path to `RS_DIR/checklist.md` (omitted under `--no-spec`). Never the checklist's text — the prompt carries the path, the reviewer `cat`s the file. Never the threads. `RS_DIR/rules.md` goes to **B only** — no other charter reads it.
 
-≤3 files **or** <300 changed lines → run the same charters inline yourself. The inline branch skips the *spawns*, nothing else: steps 1 and 3–5 unchanged, `cat RS_DIR/rules.md` before the B axis exactly as a reviewer would.
+≤3 files **or** <300 changed lines → run the same charters inline yourself. The inline branch skips the *spawns*, nothing else: steps 1 and 3–5 unchanged, `cat RS_DIR/rules.md` before the B axis and `cat RS_DIR/checklist.md` — if it exists — before any axis, exactly as a reviewer would.
 
 **Prelude — prepend to every reviewer:**
 
@@ -71,7 +73,7 @@ Spawn all four **in one message** (three under `--no-spec` — D is skipped), `m
 > - `evidence.quote` mandatory — 2–10 lines copied verbatim out of the file, not retyped. The gate greps it back.
 > - `evidence.locations` — every `file:line` you opened. `evidence.repro` — a command or click path (`tsc --noEmit`, `jest -t '…'`, URL). **Report it, don't run it.** Omit where none applies.
 > - `pre_existing` — revert test: would this defect still be here if the diff's lines were removed? True → ticket, not dropped. Cap 3 per reviewer, P0/P1 only.
-> - The checklist is the author's intent — behaviour it declares deliberate isn't a defect.
+> - `cat RS_DIR/checklist.md` before the first candidate (no path in the prompt → there is no checklist, skip this) — read every item **whole**, to the end of the line. The checklist is the author's intent: behaviour it declares deliberate isn't a defect, and half an item read is an intent invented.
 > - Skip what eslint / stylelint / tsc catch.
 > - Name the defect, not the patch — no code to apply, no «сделай так».
 > - Navigate by name: LSP (`goToDefinition` / `findReferences` / `incomingCalls` / `hover`) for ts/js/tsx, php, rust, go — `ToolSearch("select:LSP")` first; else `grep`/`rg` via Bash (no `Grep`/`Glob` tool in this session; quote globs for zsh). No repo-wide pattern sweeps.
@@ -82,7 +84,7 @@ Spawn all four **in one message** (three under `--no-spec` — D is skipped), `m
     "severity": "P0" | "P1" | "P2",
     "file": "path/to/file.ts", "line": 123,
     "claim": "one sentence: what is wrong and why it breaks",
-    "rule_source": "CLAUDE.md | smell:Feature Envy | checklist | universal",
+    "rule_source": "CLAUDE.md | smell:Feature Envy | checklist: «<item, verbatim>» | universal",
     "pre_existing": false,
     "evidence": { "quote": "…", "locations": "a.tsx:40-58; b.tsx:12", "repro": "…" }
   }],
@@ -130,7 +132,7 @@ Every P0/P1 names the delta (`O(n*m) → O(n+m)`, `+1 request → reuse existing
 
 ### D · Spec — checklist vs diff
 
-Skipped under `--no-spec`. `rule_source: "checklist"`. Check **both directions**:
+Skipped under `--no-spec`. `rule_source: "checklist: «<one line, copied verbatim out of `checklist.md`>»"` — the gate greps that line back, so copy it as it stands in the file, don't restate the item. Check **both directions**:
 
 - **Promised, absent from the diff** — P0 if the checklist says it was fixed, P1 if it says it was touched.
 - **In the diff, not promised** — a behaviour change the tester doesn't know to check (P1). Pure refactors don't count.
@@ -143,8 +145,8 @@ Mechanical, no judgment. Discard on the first failure and tally the reason:
 
 1. `evidence.quote` non-empty — else *no evidence*.
 2. `grep -nF '<longest distinctive line of the quote>' <file>` — **bare `grep`, never `rtk run grep`** (`sh -c` re-parse kills a quote with `(`, `'`, `"`). No match → *quote not in file*. Match far from `line` → fix `line`, keep.
-3. `rule_source` names a `.md` file → `grep -nF '<its «…» line>' <that file>`. No match → *rule not in file*. `smell:` / `checklist` / `universal` skip this check.
-4. `file` and every file in `locations` is in the diff or directly imports a diff file — else *off-perimeter*. Exception: a `rule_source: "checklist"` absence may point at the paired place, wherever it lives.
+3. `rule_source` carries a `«…»` quote → `grep -nF '<that line>' <the file it names>`; `checklist:` greps `RS_DIR/checklist.md`. No match → *rule not in file*. `smell:` / bare `universal` skip this check; a `checklist` candidate without a `«…»` quote is discarded as *rule not in file* — that is exactly how a paraphrased checklist item gets caught.
+4. `file` and every file in `locations` is in the diff or directly imports a diff file — else *off-perimeter*. Exception: a `rule_source: "checklist: …"` absence may point at the paired place, wherever it lives.
 
 Route by the revert test: `pre_existing: true` → ticket `T`; else finding `#`.
 
@@ -248,4 +250,5 @@ pbcopy < /tmp/review-repo-29876-20260825-1420.md
 - Scope is the revert test, not taste. «Раз уж мы рядом» → ticket.
 - Hook output is not a task — at most a clause on `_Прочее:_`.
 - Design notes skip the quote gate, but never the thread check (step 4).
+- The checklist reaches reviewers as a file, never as prose in a prompt. Compressing it for brevity is what makes a reviewer quote a rule the user never wrote.
 - Invalid JSON from a reviewer → note it on `_Прочее:_`, count its candidates as *unparseable*, continue.
