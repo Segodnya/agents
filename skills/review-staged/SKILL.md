@@ -62,7 +62,7 @@ python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all \
 
 `--all` is mandatory — resolved threads are exactly «уже обсудили». No `audit-reply` → `glab api "projects/:id/merge_requests/<iid>/discussions"` into the same file. Fails → skip step 4, say so in the header.
 
-**Checklist** — pasted by the user, never generated from the diff. Missing and no `--no-spec` → ask and wait. Save it **verbatim** via `Write` to `RS_DIR/checklist.md` — exactly as pasted, same line breaks, nothing shortened, nothing merged, no clause dropped. Reviewers read that file; a checklist retold in your own words is the same failure as a path retyped from a `--stat`. Under `--no-spec` there is no checklist and the file isn't created.
+**Checklist** — pasted by the user, never generated from the diff. Missing and no `--no-spec` → ask and wait. Save it **verbatim** via `Write` to `RS_DIR/checklist.md` — exactly as pasted, same line breaks, nothing shortened, nothing merged, no clause dropped. A revised paste later in the run → the file already exists and the harness refuses `Write` over an unread file: `Read` it first, then `Write`; no `mv`, no heredoc. Reviewers read that file; a checklist retold in your own words is the same failure as a path retyped from a `--stat`. Under `--no-spec` there is no checklist and the file isn't created.
 
 ## 2. Reviewers
 
