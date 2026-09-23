@@ -2,10 +2,12 @@
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 
 MAX_DIFF_LINES_PER_FILE = 500
+CACHE_DIR = "/tmp/dev-feedback"
 BOT_PATTERNS = ["bot", "deployer", "ci-", "gitlab-"]
 
 
@@ -105,7 +107,12 @@ def main():
         "comments": comments,
     }
 
-    print(json.dumps(output, ensure_ascii=False, indent=2))
+    text = json.dumps(output, ensure_ascii=False, indent=2)
+    # копия для гейта цитат в Step 4: диффы есть только в контексте субагента
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(os.path.join(CACHE_DIR, f"{pid}-{iid}.json"), "w") as f:
+        f.write(text)
+    print(text)
 
 
 if __name__ == "__main__":

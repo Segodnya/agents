@@ -124,6 +124,7 @@ def main():
     parser = argparse.ArgumentParser(description="Fetch and categorize a developer's MRs active in the period")
     parser.add_argument("--username", required=True, help="GitLab username")
     parser.add_argument("--months", type=int, default=3, help="Period in months (default: 3)")
+    parser.add_argument("--since", help="начало окна YYYY-MM-DD, перекрывает --months")
     parser.add_argument("--hostname", required=True, help="GitLab hostname")
     parser.add_argument(
         "--states",
@@ -133,7 +134,7 @@ def main():
     args = parser.parse_args()
 
     now = datetime.now(timezone.utc)
-    window_from = (now - timedelta(days=args.months * 30)).strftime("%Y-%m-%d")
+    window_from = args.since or (now - timedelta(days=args.months * 30)).strftime("%Y-%m-%d")
     window_to = now.strftime("%Y-%m-%d")
 
     # предфильтр по updated_after, а не created_after: МР, заведённый до окна и
