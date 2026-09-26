@@ -1,6 +1,6 @@
 ---
 name: review-staged
-description: "Review of a git diff in one of four modes (staged / last commit / branch vs master / worktree) by four parallel reviewers — correctness & contracts, rules & smells (+ design notes), performance & complexity, and the deploy checklist. Every finding carries a verbatim quote from the real file; unquotable claims are dropped. Findings already settled in the MR discussion threads are marked as such; real defects that pre-date the diff become ticket drafts instead of findings. Report goes to the chat and to a temp `.md`; the skill never edits code. Flags: `--no-mr` (no MR link), `--no-spec` (no deploy checklist). NOT the built-in `/code-review`. Use when the user says «ревью стейджа», «review staged», `/review-staged`, or wants a safety/architecture/style/integration/performance audit of a diff."
+description: "Review of a git diff in one of four modes (staged / last commit / branch vs master / worktree) by four parallel reviewers — correctness & contracts, rules & smells (+ design notes), performance & complexity, and the deploy checklist. Every finding carries a verbatim quote from the real file; unquotable claims are dropped. Findings already settled in the MR discussion threads are marked as such; real defects that pre-date the diff become ticket drafts instead of findings. Report goes to the chat and to a temp `.md`; the skill never edits code. Flags: `--no-mr` (no MR link), `--no-spec` (no deploy checklist), `--base <branch>` / `--mr <url>` / `--checklist <file>` (answers for unattended runs). NOT the built-in `/code-review`. Use when the user says «ревью стейджа», «review staged», `/review-staged`, or wants a safety/architecture/style/integration/performance audit of a diff."
 ---
 
 # review-staged
@@ -13,7 +13,7 @@ description: "Review of a git diff in one of four modes (staged / last commit / 
 5 REPORT     chat + temp .md
 ```
 
-Invocation: `review-staged [staged|last|branch|worktree] [--no-mr] [--no-spec]`.
+Invocation: `review-staged [staged|last|branch|worktree] [--no-mr] [--no-spec] [--base <branch>] [--mr <url>] [--checklist <file>]`. The value flags answer step-1 questions up front (`mr-ready` sets them).
 
 ## 1. Ground
 
@@ -24,7 +24,7 @@ Invocation: `review-staged [staged|last|branch|worktree] [--no-mr] [--no-spec]`.
 | `branch` | `git diff $(git merge-base HEAD <base>)..HEAD` |
 | `worktree` | `git diff HEAD` |
 
-`<base>` from `git symbolic-ref --short refs/remotes/origin/HEAD` minus `origin/`, else `master`. No argument → `AskUserQuestion` with the four modes.
+`<base>` = `--base <branch>` (MR target is often a parent feature branch, not master); else `git symbolic-ref --short refs/remotes/origin/HEAD` minus `origin/`, else `master`. `git fetch origin <base>` first, diff against `origin/<base>`. No argument → `AskUserQuestion` with the four modes.
 
 `RS_DIR` — a fresh dir per run, stamped with the launch time so two reviews of the same repo on the same day never collide:
 
@@ -53,7 +53,7 @@ python3 "SKILL_DIR/scripts/match_rules.py" <repo-root> \
 
 stderr prints `matched <k> of <n>` and both lists — that line goes into the report header verbatim. `matched 0` or no rules dir → the file stays empty and the header says `_Applied rules: нет path-scoped правил_`; that is a valid outcome, inventing one is not.
 
-**MR** — URL in the invocation, else `glab mr list --source-branch $(git branch --show-current)` and confirm. Neither, and no `--no-mr` → stop and ask. Fetch threads **to a file, don't read them** (step 4 reads them):
+**MR** — `--mr <url>` or a URL in the invocation, no confirmation; else `glab mr list --source-branch $(git branch --show-current)` and confirm. Neither, and no `--no-mr` → stop and ask. Fetch threads **to a file, don't read them** (step 4 reads them):
 
 ```bash
 python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all \
@@ -62,7 +62,7 @@ python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all \
 
 `--all` is mandatory — resolved threads are exactly «уже обсудили». No `audit-reply` → `glab api "projects/:id/merge_requests/<iid>/discussions"` into the same file. Fails → skip step 4, say so in the header.
 
-**Checklist** — pasted by the user, never generated from the diff. Missing and no `--no-spec` → ask and wait. Save it **verbatim** via `Write` to `RS_DIR/checklist.md` — exactly as pasted, same line breaks, nothing shortened, nothing merged, no clause dropped. A revised paste later in the run → the file already exists and the harness refuses `Write` over an unread file: `Read` it first, then `Write`; no `mv`, no heredoc. Reviewers read that file; a checklist retold in your own words is the same failure as a path retyped from a `--stat`. Under `--no-spec` there is no checklist and the file isn't created.
+**Checklist** — pasted by the user, never generated from the diff. `--checklist <file>` → `cp <file> RS_DIR/checklist.md`, no question. Missing and no `--no-spec` → ask and wait. Save it **verbatim** via `Write` to `RS_DIR/checklist.md` — exactly as pasted, same line breaks, nothing shortened, nothing merged, no clause dropped. A revised paste later in the run → the file already exists and the harness refuses `Write` over an unread file: `Read` it first, then `Write`; no `mv`, no heredoc. Reviewers read that file; a checklist retold in your own words is the same failure as a path retyped from a `--stat`. Under `--no-spec` there is no checklist and the file isn't created.
 
 ## 2. Reviewers
 
@@ -178,6 +178,8 @@ Match by `file` + `new_line` ±10, or by the same claim in prose. Judge the expl
 - **Doesn't** → stays a finding + one line on why the answer doesn't cover the case.
 
 Design notes have a lower bar: any thread that argued the same claim either way **kills the note** — it goes to `_Прочее:_` as «D<n> снят тредом #<n>», never re-asked with `✅`. A note no thread touched stays. Last round's report is itself a thread root, so a note repeating what you asked last round is settled, not new.
+
+A thread root starting with `🤖 self-review ·` is a previous `mr-ready` finding under the author's account — judge it as a reviewer's thread, not an author note.
 
 A re-reviewed MR carries last round's report as a thread root (`# Code Review — <N> находок`). No reply under it → keep the finding, mark «повтор #<n>, без ответа автора». Numbering doesn't carry over between rounds.
 
