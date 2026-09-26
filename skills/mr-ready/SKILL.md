@@ -57,9 +57,9 @@ Invocation: `mr-ready [<MR url>] [--no-spec]`. Один слэш-вызов на
 2. База — `target_branch`, не master. `git fetch origin <target_branch>`.
 3. Чек-лист → `MR_DIR/checklist.md` дословно. Источник по приоритету: `--no-spec` (нет); ссылка в
    `/goal` или инвокации; описание MR; иначе вопрос. Ссылка Jira `…/browse/<KEY>?focusedCommentId=<id>`
-   → `jira issue view <KEY> --comments 50 --plain`, блок «Чек-лист для отгрузки» до следующего автора.
-4. Проверки: бинарники репо (`node_modules/.bin/tsc|eslint|jest|vitest`, `Makefile`, `pytest`) +
-   `.claude/rules` / `CLAUDE.md` проекта. Не нашёл → вопрос.
+   → `jira issue view <KEY> --comments 50 --raw`, комментарий с этим `id` целиком (`--plain` id не
+   показывает — «последний комментарий» при нескольких = угадывание).
+4. Проверки: бинарники репо (`node_modules/.bin/tsc|eslint|jest|vitest`, `Makefile`, `pytest`) — в корне нет → во вложенных workspace (`frontend/`, `packages/*`); + `.claude/rules` / `CLAUDE.md` проекта. Не нашёл → вопрос. Команды → `state.md`.
 5. Язык тредов — язык MR; человеку — язык его комментария.
 
 Все вопросы — в **одном** `AskUserQuestion`. Дальше тишина до DISCUSS или конца.
@@ -80,7 +80,7 @@ Invocation: `mr-ready [<MR url>] [--no-spec]`. Один слэш-вызов на
 
 ## 2. Exit?
 
-- 0 открытых → шаг 6, `ready`. Нерезолвируемые ноты ботов (`bundle_size_analyzer`, CI) — не находки и не треды, в отчёт как `_Прочее_`.
+- 0 открытых → сам прогоняешь проверки из `state.md` (отчёт reviewer — гипотеза); зелёные → шаг 6, `ready`, итог в отчёт; красные → находка `general`, шаг 3. Нерезолвируемые ноты ботов (`bundle_size_analyzer`, CI) — не находки и не треды, в отчёт как `_Прочее_`.
 - `r ≥ 2` и `(file, line±5, суть)` совпадают с `r-1` → шаг 6, `stuck`.
 - `r = 10` → шаг 6, `cap`.
 
