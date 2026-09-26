@@ -200,7 +200,11 @@ REPLY — только если Step 3 назвал невидимый инва�
 [{"discussion_id": "…", "kind": "FIX|REPLY|REVERTED", "body": "🤖 self-review · Поправил: …"}]
 ```
 
-`body` начинается с `🤖 self-review · `, чтобы ревьюер отличал автоответ.
+`body` начинается с `🤖 self-review · `, чтобы ревьюер отличал автоответ. Дописывать через скрипт, не heredoc-ом:
+
+```bash
+python3 "SKILL_DIR/scripts/reply_add.py" AR_DIR/replies.json <discussion_id> FIX "🤖 self-review · Поправил: …"
+```
 
 ## Step 6. Итоговый отчёт
 

@@ -98,10 +98,14 @@ def cmd_reply(a, host, proj, iid):
 def cmd_describe(a, host, proj, iid):
     mr = api(host, "GET", f"projects/{proj}/merge_requests/{iid}")
     desc = mr.get("description") or ""
-    block = f"{MARK_OPEN}\n{a.body.strip()}\n{MARK_CLOSE}"
+    # the caller may have pasted the markers into the body — one pair is ours to add
+    body = a.body.replace(MARK_OPEN, "").replace(MARK_CLOSE, "").strip()
+    block = f"{MARK_OPEN}\n{body}\n{MARK_CLOSE}"
     if MARK_OPEN in desc and MARK_CLOSE in desc:
         head, rest = desc.split(MARK_OPEN, 1)
-        _, tail = rest.split(MARK_CLOSE, 1)
+        _, tail = rest.rsplit(MARK_CLOSE, 1)
+        # stray markers left by an earlier bad upsert must not survive
+        tail = tail.replace(MARK_OPEN, "").replace(MARK_CLOSE, "")
         desc = head + block + tail
     else:
         desc = (desc.rstrip() + "\n\n" if desc.strip() else "") + block

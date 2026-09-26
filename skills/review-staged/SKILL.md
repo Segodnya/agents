@@ -259,3 +259,6 @@ pbcopy < /tmp/review-staged-repo-fix-auth-20260909-143507/review-repo-29876.md
 - Design notes skip the quote gate, but never the thread check (step 4).
 - The checklist reaches reviewers as a file, never as prose in a prompt. Compressing it for brevity is what makes a reviewer quote a rule the user never wrote.
 - Invalid JSON from a reviewer → note it on `_Прочее:_`, count its candidates as *unparseable*, continue.
+- Comparing two files (this round's diff vs last round's) — `cmp`, never `diff`: the rtk hook rewrites `diff` output and has printed «Files are identical» for files that differ.
+- `jest --findRelatedTests <files>` with no matches exits 1 — that is «тестов по файлам нет» for the header, not a red check.
+- Inline branch: `rules.md` can run to 40 KB+ and overflow the tool result. `grep -n` it for the diff's own keywords (imports, try/catch, comments, types) plus the `=====` separators — never `cat` it whole.
