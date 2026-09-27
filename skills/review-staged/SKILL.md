@@ -68,7 +68,7 @@ python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR_URL>" --all \
 
 Spawn all four **in one message** (three under `--no-spec` — D is skipped), `model: "sonnet"` on each. Each gets: the literal path to `RS_DIR/diff`, the file list **copied verbatim from `RS_DIR/files.txt`** (`cat` it if it's no longer in context — never retype paths from memory or from a stat), the literal path to `RS_DIR/checklist.md` (omitted under `--no-spec`). Never the checklist's text — the prompt carries the path, the reviewer `cat`s the file. Never the threads. `RS_DIR/rules.md` goes to **B only** — no other charter reads it.
 
-≤3 files **or** <300 changed lines → run the same charters inline yourself. The inline branch skips the *spawns*, nothing else: steps 1 and 3–5 unchanged, `cat RS_DIR/rules.md` before the B axis and `cat RS_DIR/checklist.md` — if it exists — before any axis, exactly as a reviewer would.
+≤3 files **or** <300 changed lines → run the same charters inline yourself. The inline branch skips the *spawns*, nothing else: steps 1 and 3–5 unchanged, `RS_DIR/rules.md` read in full, section by section, before the B axis and `cat RS_DIR/checklist.md` — if it exists — before any axis, exactly as a reviewer would.
 
 **Prelude — prepend to every reviewer:**
 
@@ -113,10 +113,11 @@ Spawn all four **in one message** (three under `--no-spec` — D is skipped), `m
 **Rules** — the repo's path-scoped rules, already collected for you:
 
 ```bash
-cat RS_DIR/rules.md   # literal path comes in the prompt
+grep -n '^===== RULE FILE' RS_DIR/rules.md   # literal path comes in the prompt
+sed -n '<from>,<to>p' RS_DIR/rules.md          # every section, the last one to `$`
 ```
 
-Read it **in full** before the first candidate — pre-filtered to the changed files, `===== RULE FILE: <path> =====` separates them. Empty or absent → don't go looking. On top of it: `~/.claude/CLAUDE.md` + `~/.claude/rules/*.md`, the project's `CLAUDE.md` / `AGENTS.md`. Nothing from memory — an unread rule is not a rule. Cite as `rule_source: "<rule file>: «<the rule line, verbatim>»"`, path as printed in the separator; the gate greps that line back.
+Read it **in full**, section by section (40 KB+ overflows a single tool result), before the first candidate — pre-filtered to the changed files, `===== RULE FILE: <path> =====` separates them. Empty or absent → don't go looking. On top of it: `~/.claude/CLAUDE.md` + `~/.claude/rules/*.md`, the project's `CLAUDE.md` / `AGENTS.md`. Nothing from memory — an unread rule is not a rule. Cite as `rule_source: "<rule file>: «<the rule line, verbatim>»"`, path as printed in the separator; the gate greps that line back.
 
 **Smells** — Fowler's catalogue: Mysterious Name, Duplicated Code, Feature Envy, Data Clumps, Primitive Obsession, Repeated Switches, Shotgun Surgery, Divergent Change, Speculative Generality, Message Chains, Middle Man, Refused Bequest. `P2` unless it bites; a documented rule overrides it; skip what tooling enforces. Name the smell, quote the hunk.
 
@@ -261,4 +262,4 @@ pbcopy < /tmp/review-staged-repo-fix-auth-20260909-143507/review-repo-29876.md
 - Invalid JSON from a reviewer → note it on `_Прочее:_`, count its candidates as *unparseable*, continue.
 - Comparing two files (this round's diff vs last round's) — `cmp`, never `diff`: the rtk hook rewrites `diff` output and has printed «Files are identical» for files that differ.
 - `jest --findRelatedTests <files>` with no matches exits 1 — that is «тестов по файлам нет» for the header, not a red check.
-- Inline branch: `rules.md` can run to 40 KB+ and overflow the tool result. `grep -n` it for the diff's own keywords (imports, try/catch, comments, types) plus the `=====` separators — never `cat` it whole.
+- Inline branch reads `rules.md` exactly as B does — by sections, every one. A keyword grep instead skips the rules you didn't think to search for.

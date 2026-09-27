@@ -6,11 +6,12 @@ glab quirks this hides: a JSON body needs `-H 'Content-Type: application/json' -
 still exits 0 with an `id` on stdout — so nothing here trusts an exit code, every subcommand
 re-fetches and checks.
 
-    mr_post.py thread --url MR --file a.ts --line 12 --body-file b.md   # new file:line thread
+    mr_post.py thread --url MR --file a.ts --line 12 --body-file b.md   # new file:line thread (line outside the diff → unpositioned)
     mr_post.py reply  --url MR --discussion <id>       --body-file b.md   # reply into a thread
     mr_post.py describe --url MR --body-file block.md                     # upsert marked block
 
-Prints one JSON line per call: {"ok": true, "discussion_id": ..., "note_id": ...}.
+Prints one JSON line per call: {"ok": true, "discussion_id": ..., "note_id": ...}; an unpositioned
+fallback thread adds "general": true.
 """
 
 import argparse
@@ -33,7 +34,7 @@ def parse_url(url):
     return p.netloc, quote(project.strip("/"), safe=""), iid
 
 
-def api(host, method, endpoint, body=None):
+def api(host, method, endpoint, body=None, soft=False):
     cmd = ["glab", "api", "--hostname", host, "-X", method, endpoint]
     stdin = None
     if body is not None:
@@ -41,6 +42,8 @@ def api(host, method, endpoint, body=None):
         stdin = json.dumps(body)
     r = subprocess.run(cmd, input=stdin, capture_output=True, text=True)
     if r.returncode != 0:
+        if soft:
+            return {"error": r.stderr.strip()}
         sys.exit(f"glab {method} {endpoint}: {r.stderr.strip()}")
     try:
         return json.loads(r.stdout) if r.stdout.strip() else {}
@@ -73,11 +76,23 @@ def cmd_thread(a, host, proj, iid):
             "new_path": a.file, "old_path": a.file, "new_line": a.line,
         },
     }
-    created = api(host, "POST", f"projects/{proj}/merge_requests/{iid}/discussions", body)
+    created = api(host, "POST", f"projects/{proj}/merge_requests/{iid}/discussions", body, soft=True)
+    is_general = "line_code" in created.get("error", "")
+    if is_general:
+        # the line is not in the diff, GitLab refuses a positioned thread — keep the place in the body
+        where = f"`{a.file}:{a.line}`"
+        # after the title: audit-reply spots our findings by the `🤖 self-review ·` prefix
+        title, _, rest = a.body.partition("\n")
+        text = a.body if where in a.body else f"{title}\n\n{where}\n{rest}"
+        created = api(host, "POST", f"projects/{proj}/merge_requests/{iid}/discussions", {"body": text})
+    elif "error" in created:
+        sys.exit(f"thread POST: {created['error']}")
     disc_id = created.get("id")
     match = [d for d in discussions(host, proj, iid) if d["id"] == disc_id]
     if not match:
         sys.exit("thread POST returned an id that the discussions listing does not contain")
+    if is_general:
+        return {"ok": True, "discussion_id": disc_id, "note_id": match[0]["notes"][0]["id"], "general": True}
     pos = (match[0]["notes"][0].get("position") or {})
     if pos.get("new_path") != a.file or pos.get("new_line") != a.line:
         sys.exit(f"thread created but position dropped: got {pos}")
