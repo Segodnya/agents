@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Append one entry to AR_DIR/replies.json (creates the file if missing).
 
-    reply_add.py <replies.json> <discussion_id> <FIX|REPLY|REVERTED> <body>
+    reply_add.py <replies.json> <discussion_id> <FIX|REPLY|REVERTED> <body> [<verified_by cmd>...]
 """
 import json
 import sys
 
 path, disc, kind, body = sys.argv[1:5]
+verified_by = sys.argv[5:]
 if kind not in ("FIX", "REPLY", "REVERTED"):
     sys.exit(f"kind must be FIX|REPLY|REVERTED, got {kind}")
 if not body.startswith("🤖 self-review · "):
@@ -16,7 +17,7 @@ try:
         items = json.load(fh)
 except FileNotFoundError:
     items = []
-items.append({"discussion_id": disc, "kind": kind, "body": body})
+items.append({"discussion_id": disc, "kind": kind, "body": body, "verified_by": verified_by})
 with open(path, "w", encoding="utf-8") as fh:
     json.dump(items, fh, ensure_ascii=False, indent=1)
 print(json.dumps({"ok": True, "count": len(items)}))

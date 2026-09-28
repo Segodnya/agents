@@ -76,7 +76,7 @@ Spawn all four **in one message** (three under `--no-spec` — D is skipped), `m
 > - Hunt inside the diff. Read adjacent code only to check a claim about a diff line.
 > - State the claim, then open the real file and check the assumption under it (guard above, caller, type, actual collection size). Refuted → `dropped.refuted`. Can't settle → `dropped.unproven`.
 > - `evidence.quote` mandatory — 2–10 lines copied verbatim out of the file, not retyped. The gate greps it back.
-> - `evidence.locations` — every `file:line` you opened. `evidence.repro` — a command or click path (`tsc --noEmit`, `jest -t '…'`, URL). **Report it, don't run it.** Omit where none applies.
+> - `evidence.locations` — every `file:line` you opened. `evidence.repro` — a command or click path (`tsc --noEmit`, `jest -t '…'`, URL). Omit where none applies. A claim that hinges on a check's outcome → run the repo's own binary (test / typecheck / lint) and paste its output; settle everything else by reading the real code — a copy of the logic under review proves only the copy.
 > - `pre_existing` — revert test: would this defect still be here if the diff's lines were removed? True → ticket, not dropped. Cap 3 per reviewer, P0/P1 only.
 > - `cat RS_DIR/checklist.md` before the first candidate (no path in the prompt → there is no checklist, skip this) — read every item **whole**, to the end of the line. The checklist is the author's intent: behaviour it declares deliberate isn't a defect, and half an item read is an intent invented.
 > - Skip what eslint / stylelint / tsc catch.
@@ -248,7 +248,7 @@ pbcopy < /tmp/review-staged-repo-fix-auth-20260909-143507/review-repo-29876.md
 
 ## Hard constraints
 
-- Never write code, never touch the repo — the report in `/tmp` is the only write. Asked to fix → separate task.
+- Never write code, never touch the repo. Writes go to `/tmp`: the report, plus every artifact the caller's prompt names by path — one you can't produce → `MISSING: <what>` in the answer. Asked to fix → separate task.
 - Questions only in step 1. No sharding — one reviewer per axis, all files.
 - Every `Agent` spawn carries `model: "sonnet"`.
 - After the spawn message emit nothing until a report lands — no `echo`/`sleep`/`date`, no status narration, no "meanwhile" reading.
