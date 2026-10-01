@@ -13,8 +13,6 @@ CACHE_DIR = "/tmp/dev-feedback"
 
 
 def truncate_diff(diff_text):
-    if not diff_text:
-        return ""
     lines = diff_text.split("\n")
     if len(lines) <= MAX_DIFF_LINES_PER_FILE:
         return diff_text
@@ -31,18 +29,15 @@ def main():
     pid = args.project_id
     iid = args.mr_iid
 
-    changes_data = get(args.hostname, f"projects/{pid}/merge_requests/{iid}/changes")
+    changes_data = get(args.hostname, f"projects/{pid}/merge_requests/{iid}/changes") or {}
 
-    changed_files = []
-    if changes_data and "changes" in changes_data:
-        for change in changes_data["changes"]:
-            changed_files.append({
-                "path": change.get("new_path") or change.get("old_path", ""),
-                "new_file": change.get("new_file", False),
-                "deleted_file": change.get("deleted_file", False),
-                "renamed_file": change.get("renamed_file", False),
-                "diff": truncate_diff(change.get("diff", "")),
-            })
+    changed_files = [{
+        "path": change.get("new_path") or change.get("old_path", ""),
+        "new_file": change.get("new_file", False),
+        "deleted_file": change.get("deleted_file", False),
+        "renamed_file": change.get("renamed_file", False),
+        "diff": truncate_diff(change.get("diff") or ""),
+    } for change in changes_data.get("changes", [])]
 
     all_notes = paginate(args.hostname, f"projects/{pid}/merge_requests/{iid}/notes", soft=True)
 
@@ -69,8 +64,8 @@ def main():
     output = {
         "project_id": int(pid),
         "iid": int(iid),
-        "title": changes_data.get("title", "") if changes_data else "",
-        "description": changes_data.get("description", "") if changes_data else "",
+        "title": changes_data.get("title", ""),
+        "description": changes_data.get("description", ""),
         "changed_files": changed_files,
         "comments": comments,
     }

@@ -66,7 +66,8 @@ def from_gate(a):
     if "file" not in f:
         loc = (f.get("locations") or [""])[0]
         f["file"], _, line = loc.rpartition(":")
-        f["line"] = int(re.match(r"\d+", line).group()) if re.match(r"\d+", line) else 0
+        m = re.match(r"\d+", line)
+        f["line"] = int(m.group()) if m else 0
     if not f["file"] or not f["line"]:
         sys.exit(f"{a.id} has no file:line — post it with glab mr note")
     a.file, a.line, a.body = f["file"], int(f["line"]), render(f)
@@ -126,13 +127,16 @@ def cmd_thread(a, host, proj, iid):
     return {"ok": True, "discussion_id": disc_id, "note_id": note["id"]}
 
 
-def cmd_reply(a, host, proj, iid):
-    created = api(host, "POST", f"{mr_endpoint(proj, iid)}/discussions/{a.discussion}/notes",
-                  {"body": a.body})
-    ids = {n["id"] for n in discussion(host, proj, iid, a.discussion).get("notes", [])}
+def reply(host, proj, iid, disc_id, body):
+    created = api(host, "POST", f"{mr_endpoint(proj, iid)}/discussions/{disc_id}/notes", {"body": body})
+    ids = {n["id"] for n in discussion(host, proj, iid, disc_id).get("notes", [])}
     if created.get("id") not in ids:
         sys.exit(f"reply POST returned id {created.get('id')} but the thread does not contain it")
-    return {"ok": True, "discussion_id": a.discussion, "note_id": created["id"]}
+    return {"ok": True, "discussion_id": disc_id, "note_id": created["id"]}
+
+
+def cmd_reply(a, host, proj, iid):
+    return reply(host, proj, iid, a.discussion, a.body)
 
 
 def cmd_describe(a, host, proj, iid):
@@ -225,8 +229,7 @@ def cmd_reply_all(a, host, proj, iid):
             out["posted"].append({"discussion_id": did, "body_file": path, "dry_run": True})
             continue
         try:
-            a.discussion, a.body = did, rep["body"]
-            out["posted"].append({**cmd_reply(a, host, proj, iid), "body_file": path})
+            out["posted"].append({**reply(host, proj, iid, did, rep["body"]), "body_file": path})
         except SystemExit as e:
             out["failed"].append({"discussion_id": did, "reason": str(e)})
     return out

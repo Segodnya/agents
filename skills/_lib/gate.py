@@ -17,6 +17,7 @@ with the caller.
 """
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -27,6 +28,7 @@ REASONS = ["unproven", "refuted", "no evidence", "quote not in file", "rule not 
 SEV = {"P0": 0, "P1": 1, "P2": 2}
 
 
+@functools.cache
 def read(path):
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:

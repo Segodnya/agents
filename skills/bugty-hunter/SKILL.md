@@ -15,7 +15,7 @@ description: "Hunts real and potential bugs in one of three scopes — a git dif
 
 Invocation: `bugty-hunter [staged|last|branch|worktree|<path>|project]`.
 
-**NAV** (into every agent prompt): navigate by name — LSP (`goToDefinition` / `findReferences` / `incomingCalls` / `hover`) for ts/js/tsx, php, rust, go, `ToolSearch("select:LSP")` first; else `grep`/`rg` via Bash (no `Grep`/`Glob` tool here; quote globs for zsh). No repo-wide pattern sweeps.
+**NAV** (into every agent prompt): `grep`/`rg` via Bash by default — one symbol, known file, "where is it declared" → grep (no `Grep`/`Glob` tool here; quote globs for zsh: `grep --include='*.ts'`, `rg -g '*.ts'`). LSP (ts/js/tsx, php, rust, go; `ToolSearch("select:LSP")` first) costs three round trips — only where grep answers wrong: consumer list (`findReferences` / `incomingCalls`), type of an expression, not a declaration (`hover`), what a method calls (`outgoingCalls`). Position from `workspaceSymbol`, always with `query`. Twig, CSS, `.po`, vendor bundles, untyped Backbone have no LSP coverage — grep and read the source. No repo-wide pattern sweeps.
 
 ## 1. Ground
 

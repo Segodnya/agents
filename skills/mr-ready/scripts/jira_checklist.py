@@ -13,7 +13,7 @@ listItem. Deleted items, changes outside list items, or anything ambiguous → e
 Before the PUT the comment is re-read and must equal the ADF saved by `get`; after it, re-read and
 compared with what was sent. --dry-run prints the plan and writes nothing.
 
-Auth: $JIRA_API_TOKEN + `login` / `server` from ~/.config/.jira/.config.yml.
+Auth and transport: _lib/jira.py.
 """
 
 import argparse
@@ -23,10 +23,9 @@ import json
 import os
 import re
 import sys
-import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../_lib"))
-from jira import auth as jira_auth  # noqa: E402
+from jira import request  # noqa: E402
 
 LISTS = ("orderedList", "bulletList")
 # presentation only: a checklist item means the same with or without them
@@ -42,21 +41,8 @@ def die(msg):
 
 # ---- Jira ----
 
-def endpoint(key, cid):
-    server, auth = jira_auth()
-    return f"{server}/rest/api/3/issue/{key}/comment/{cid}", auth
-
-
 def call(key, cid, method="GET", body=None):
-    url, auth = endpoint(key, cid)
-    req = urllib.request.Request(url, method=method, headers={"Authorization": auth, "Accept": "application/json",
-                                                              "Content-Type": "application/json"},
-                                 data=json.dumps({"body": body}).encode() if body else None)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return json.load(r)["body"]
-    except Exception as e:
-        die(f"{method} {url}: {e}")
+    return request(method, f"/rest/api/3/issue/{key}/comment/{cid}", {"body": body} if body else None)["body"]
 
 
 # ---- ADF -> markdown ----

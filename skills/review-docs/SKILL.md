@@ -23,7 +23,7 @@ description: Ревью готового документа (ТЗ, спека, �
 
 **Периметр = документ + его семья + названные им репозитории.** Читать только внутри; гейт выкидывает процитированное снаружи.
 
-Навигация по **имени**: `goToDefinition` / `findReferences` / `hover` / `outgoingCalls` для ts/js/tsx, php, rust, go (deferred-тул: сначала `ToolSearch("select:LSP")`, позиция — из `workspaceSymbol`, всегда с `query`); `grep`/`rg` через Bash по литералу — где LSP не достаёт (twig, CSS, `.po`, нетипизированный Backbone). Тулов `Grep`/`Glob` в сессии нет. Глобы в zsh — в кавычках (`--include='*.ts'`).
+Навигация: по умолчанию `grep`/`rg` через Bash — один символ, известный файл, «где объявлен» → grep. LSP (ts/js/tsx, php, rust, go; deferred-тул: сначала `ToolSearch("select:LSP")`) стоит три раунд-трипа — только где grep отвечает неверно: список потребителей (`findReferences` / `incomingCalls`), тип выражения, а не объявления (`hover`), что вызывает метод (`outgoingCalls`). Позиция — из `workspaceSymbol`, всегда с `query`. Twig, CSS, `.po`, вендор-бандлы, нетипизированный Backbone LSP не покрывает — grep и чтение исходника. Тулов `Grep`/`Glob` в сессии нет; глобы в zsh — в кавычках, фильтр по типу у каждого свой: `grep --include='*.ts'`, `rg -g '*.ts'`.
 
 **Проверяются утверждения документа, а не кодовая база.** Утверждение назвало символ → `findReferences` по нему, а не `rg` по дереву.
 

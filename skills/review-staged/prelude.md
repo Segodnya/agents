@@ -14,7 +14,7 @@
 - CI scripts (`script:` / `after_script:`) run under the runner's mode — the prompt's `Среда:` line, else GitLab Runner's `errexit` + `pipefail`, shell from the job's `image:`. Settle a claim about them by running the snippet in that image under that mode, external commands stubbed.
 - Skip what eslint / stylelint / tsc already catch. Name the defect, never the patch.
 - `claim`, `question` and `repro` go into MR threads as written: use the language your prompt names (Russian if none).
-- Navigate by name: LSP for ts/js/tsx, php, rust, go (`ToolSearch("select:LSP")` first); else `grep`/`rg` via Bash, globs quoted for zsh. No repo-wide sweeps.
+- Navigate with `grep`/`rg` via Bash by default — one symbol, known file, "where is it declared" → grep; globs quoted for zsh (`grep --include='*.ts'`, `rg -g '*.ts'`). LSP (ts/js/tsx, php, rust, go; `ToolSearch("select:LSP")` first) costs three round trips — only where grep answers wrong: consumer list (`findReferences` / `incomingCalls`), type of an expression (`hover`), what a method calls (`outgoingCalls`); position from `workspaceSymbol`, always with `query`. Twig, CSS, `.po`, vendor bundles, untyped Backbone: grep and read the source. No repo-wide sweeps.
 
 ## Evidence
 

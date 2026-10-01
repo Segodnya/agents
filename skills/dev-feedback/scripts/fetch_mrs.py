@@ -1,38 +1,28 @@
 #!/usr/bin/env python3
 
 import argparse
+import functools
 import json
 import os
 import re
 import sys
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../_lib"))
 from glab_mr import get, is_bot, paginate  # noqa: E402
+from fetch_timing import commit_is_mine, parse_ts  # noqa: E402
 
 TASK_KEY_RE = re.compile(r"[A-Z][A-Z0-9]+-\d+")
-ISO_FRACTION_RE = re.compile(r"\.\d+")
-
-
-def _count(values):
-    counts = {}
-    for v in values:
-        counts[v] = counts.get(v, 0) + 1
-    return dict(sorted(counts.items(), key=lambda kv: -kv[1]))
 
 
 def utc_day(value):
     """ISO-8601 → дата в UTC. Ноты приходят с `Z`, коммиты со смещением — обрезать
     строку по 10 символам нельзя, у полуночных коммитов день уедет."""
-    if not value:
-        return None
-    text = ISO_FRACTION_RE.sub("", value.replace("Z", "+00:00"))
-    try:
-        return datetime.fromisoformat(text).astimezone(timezone.utc).strftime("%Y-%m-%d")
-    except ValueError:
-        sys.stderr.write(f"unparsed timestamp: {value}\n")
-        return value[:10]
+    ts = parse_ts(value, timezone.utc)
+    return ts.strftime("%Y-%m-%d") if ts else (value or "")[:10] or None
 
 
 def task_key(branch):
@@ -67,26 +57,21 @@ def activity_in_window(mr, frm, to, username, hostname):
         if day and frm <= day <= to:
             return "обсуждение"
 
-    commits = get(hostname, f"projects/{pid}/merge_requests/{iid}/commits", {"per_page": "100"})
-    username_lower = username.lower()
-    for commit in commits or []:
-        haystack = f"{commit.get('author_name', '')} {commit.get('author_email', '')}".lower()
+    for commit in mr_commits(hostname, pid, iid):
         day = utc_day(commit.get("committed_date"))
-        if username_lower in haystack and day and frm <= day <= to:
+        if commit_is_mine(commit, {username.lower()}) and day and frm <= day <= to:
             return "коммиты"
 
     return None
 
 
-def check_has_commits_by_user(project_id, mr_iid, username, hostname):
-    commits = get(hostname, f"projects/{project_id}/merge_requests/{mr_iid}/commits")
-    username_lower = username.lower()
-    for commit in commits or []:
-        author_name = (commit.get("author_name") or "").lower()
-        author_email = (commit.get("author_email") or "").lower()
-        if username_lower in author_name or username_lower in author_email:
-            return True
-    return False
+@functools.cache
+def mr_commits(hostname, pid, iid):
+    return get(hostname, f"projects/{pid}/merge_requests/{iid}/commits", {"per_page": "100"}) or []
+
+
+def has_commits_by_user(pid, iid, username, hostname):
+    return any(commit_is_mine(c, {username.lower()}) for c in mr_commits(hostname, pid, iid))
 
 
 def main():
@@ -144,12 +129,18 @@ def main():
     skipped_no_activity = 0
 
     sys.stderr.write(f"Checking activity in {window_from}..{window_to} for {len(all_mrs_by_key)} MRs...\n")
-    for key, mr in sorted(all_mrs_by_key.items(), key=lambda x: x[1].get("created_at", "")):
+    ordered = sorted(all_mrs_by_key.items(), key=lambda x: x[1].get("created_at", ""))
+    # до двух серийных вызовов glab на МР — параллелим, порядок map сохраняет
+    with ThreadPoolExecutor(8) as pool:
+        activities = list(pool.map(
+            lambda item: activity_in_window(item[1], window_from, window_to, args.username, args.hostname),
+            ordered,
+        ))
+    for (key, mr), activity in zip(ordered, activities):
         is_author = key in authored_keys
         is_assignee = key in assigned_keys
 
         # МР без активности в окне — не работа этого периода, в каком бы он ни был состоянии
-        activity = activity_in_window(mr, window_from, window_to, args.username, args.hostname)
         if not activity:
             skipped_no_activity += 1
             sys.stderr.write(f"  Skipped MR !{mr['iid']} ({mr.get('state')}, no activity in window)\n")
@@ -158,10 +149,7 @@ def main():
         if is_author and is_assignee:
             category = "authored"
         elif is_author and not is_assignee:
-            has_commits = check_has_commits_by_user(
-                mr["project_id"], mr["iid"], args.username, args.hostname
-            )
-            if not has_commits:
+            if not has_commits_by_user(mr["project_id"], mr["iid"], args.username, args.hostname):
                 skipped_author_only += 1
                 sys.stderr.write(
                     f"  Skipped MR !{mr['iid']} (author_only, no commits by {args.username})\n"
@@ -213,7 +201,7 @@ def main():
         "closed": sum(1 for mr in categorized if mr["state"] == "closed"),
         "opened": sum(1 for mr in categorized if mr["state"] == "opened"),
         "skipped_no_activity": skipped_no_activity,
-        "activity_reasons": _count(mr["activity_in_window"] for mr in categorized),
+        "activity_reasons": dict(Counter(mr["activity_in_window"] for mr in categorized).most_common()),
         "authored": sum(1 for mr in categorized if mr["category"] == "authored"),
         "author_only": sum(1 for mr in categorized if mr["category"] == "author_only"),
         "assignee_only": sum(1 for mr in categorized if mr["category"] == "assignee_only"),

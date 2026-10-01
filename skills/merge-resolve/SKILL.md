@@ -40,7 +40,7 @@ python3 <skill_dir>/scripts/check_merge_symbols.py
 
 Скрипт — регекс-эвристика, вердикт выносишь ты:
 
-- `.ts`/`.tsx` — подтверди через `LSP documentSymbol` (дубль) и `findReferences` (кто остался с вызовом). Сначала `ToolSearch("select:LSP")`.
+- `.ts`/`.tsx` — дубль подтверди грепом по имени, кто остался с вызовом — `LSP findReferences` (сначала `ToolSearch("select:LSP")`, позиция — из `workspaceSymbol` с `query`).
 - легаси-Backbone, `.php`, `.js` без типов — LSP не поможет, читай исходник обеих сторон.
 
 Дубль может быть перегрузкой, пропажа — намеренным удалением. Каждый пункт отчёта объясни в плане (Шаг 4).

@@ -8,6 +8,8 @@ import os
 import re
 import statistics
 import sys
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../_lib"))
@@ -77,11 +79,23 @@ def commit_is_mine(commit, tokens):
     return any(token in haystack for token in tokens)
 
 
-def _hist(values):
-    counts = {}
-    for v in values:
-        counts[v] = counts.get(v, 0) + 1
-    return dict(sorted(counts.items()))
+def count_waves(events):
+    """(at, "comment" | "commit") → волны: серия коммитов, пришедшая после очередной порции замечаний."""
+    waves, pending = 0, False
+    for _, kind in sorted(events, key=lambda e: e[0]):
+        if kind == "comment":
+            pending = True
+        elif pending:
+            waves += 1
+            pending = False
+    return waves
+
+
+def pick_milestones(approvals, marks, merged):
+    """Отсортированные аппрувы и метки → (последний аппрув до метки, последняя метка до мержа)."""
+    deploy_at = next((t for t in reversed(marks) if not merged or t <= merged), None)
+    approved_at = next((t for t in reversed(approvals) if not deploy_at or t <= deploy_at), None)
+    return approved_at, deploy_at
 
 
 def median(values):
@@ -143,16 +157,7 @@ def analyze_mr(mr, username, tokens, hostname, tz, now):
     # rebase переписывает committed_date: расхождение с authored_date помечаем, а не молчим
     rebased = sum(1 for c in mine if c.get("committed_date", "")[:16] != c.get("authored_date", "")[:16])
 
-    # волна = серия коммитов, пришедшая после очередной порции замечаний
-    events = [(c["at"], "comment") for c in comments] + [(t, "commit") for t in my_commits]
-    events.sort(key=lambda e: e[0])
-    waves, pending = 0, False
-    for _, kind in events:
-        if kind == "comment":
-            pending = True
-        elif pending:
-            waves += 1
-            pending = False
+    waves = count_waves([(c["at"], "comment") for c in comments] + [(t, "commit") for t in my_commits])
 
     reactions = []
     for comment in comments:
@@ -166,9 +171,7 @@ def analyze_mr(mr, username, tokens, hostname, tz, now):
             "work_h": work_hours(comment["at"], fix) if fix else None,
         })
 
-    # операционные вехи: последняя метка отгрузки до мержа и последний аппрув до неё
-    deploy_at = next((t for t in reversed(deploy_marks) if not merged or t <= merged), None)
-    approved_at = next((t for t in reversed(approvals_at) if not deploy_at or t <= deploy_at), None)
+    approved_at, deploy_at = pick_milestones(approvals_at, deploy_marks, merged)
     segments = {
         "created_to_approve": segment(created, approved_at),
         "approve_to_deploy": segment(approved_at, deploy_at),
@@ -251,10 +254,6 @@ def aggregate(rows):
     lead_cal = [r["lead_calendar_h"] for r in merged_rows if r["lead_calendar_h"]]
     lead_work = [r["lead_work_h"] for r in merged_rows if r["lead_work_h"]]
 
-    wave_dist = {}
-    for w in waves:
-        wave_dist[str(w)] = wave_dist.get(str(w), 0) + 1
-
     # доли отрезков считаются по суммам и только на МР с полной цепочкой:
     # медианы отрезков в медиану целого не складываются
     seg_keys = ("created_to_approve", "approve_to_deploy", "deploy_to_merge")
@@ -273,12 +272,8 @@ def aggregate(rows):
             ),
         }
 
-    outcomes, mark_hours = {}, {}
-    for r in merged_rows:
-        if r["deploy_outcome"]:
-            outcomes[r["deploy_outcome"]] = outcomes.get(r["deploy_outcome"], 0) + 1
-        if r["deploy_mark_hour"] is not None:
-            mark_hours[str(r["deploy_mark_hour"])] = mark_hours.get(str(r["deploy_mark_hour"]), 0) + 1
+    outcomes = Counter(r["deploy_outcome"] for r in merged_rows if r["deploy_outcome"])
+    mark_hours = Counter(r["deploy_mark_hour"] for r in merged_rows if r["deploy_mark_hour"] is not None)
 
     return {
         "mrs": len(own),
@@ -309,7 +304,7 @@ def aggregate(rows):
             "to_release_branch": sum(
                 1 for r in closed_rows if r["target_branch"] not in ("master", "main", "develop")
             ),
-            "close_date_hist": _hist(r["closed_at"][:10] for r in closed_rows if r["closed_at"]),
+            "close_date_hist": dict(sorted(Counter(r["closed_at"][:10] for r in closed_rows if r["closed_at"]).items())),
             "list": [
                 f"{r['project_name']}!{r['iid']} → {r['target_branch']} — {r['title'][:55]}"
                 for r in closed_rows
@@ -327,8 +322,8 @@ def aggregate(rows):
             "mrs_without_approval": sum(1 for r in merged_rows if not r["approved_at"]),
             **lead_split,
         },
-        "deploy_outcome": outcomes,
-        "deploy_mark_hour_hist": dict(sorted(mark_hours.items(), key=lambda kv: int(kv[0]))),
+        "deploy_outcome": dict(outcomes),
+        "deploy_mark_hour_hist": {str(h): n for h, n in sorted(mark_hours.items())},
         "comments": {
             "total": sum(comment_counts),
             "per_mr_avg": mean(comment_counts),
@@ -351,7 +346,7 @@ def aggregate(rows):
             "median": median(waves),
             "avg": mean(waves),
             "max": max(waves) if waves else 0,
-            "distribution": dict(sorted(wave_dist.items(), key=lambda kv: int(kv[0]))),
+            "distribution": {str(w): n for w, n in sorted(Counter(waves).items())},
         },
     }
 
@@ -374,10 +369,15 @@ def main():
     tokens = identity_tokens(args.username, args.hostname)
     tokens |= {t.lower() for t in args.identity}
 
+    def analyze(mr):
+        sys.stderr.write(f"{mr['project_name']}!{mr['iid']}\n")
+        return analyze_mr(mr, args.username, tokens, args.hostname, tz, now)
+
     rows, warnings, identities = [], [], {}
-    for i, mr in enumerate(mrs, 1):
-        sys.stderr.write(f"[{i}/{len(mrs)}] {mr['project_name']}!{mr['iid']}\n")
-        row = analyze_mr(mr, args.username, tokens, args.hostname, tz, now)
+    # по 2+ серийных вызова glab на МР — параллелим, порядок map сохраняет
+    with ThreadPoolExecutor(8) as pool:
+        analyzed = list(pool.map(analyze, mrs))
+    for row in analyzed:
         warnings.extend(row.pop("warnings"))
         for key, (hit, count) in row.pop("commit_identities").items():
             prev = identities.get(key, (hit, 0))

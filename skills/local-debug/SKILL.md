@@ -32,7 +32,7 @@ Trace the data flow. Don't guess — read.
   - state shape (normalization, reference equality)
   - async race (concurrent requests, abort, stale closure)
   - **build-only**: chunk/CSS load order, minifier semantics, `NODE_ENV` branches, sourceless third-party bundle — these cannot reproduce on the dev build at all (see Step 3b)
-- Walk the call graph via `LSP` (ts/js/tsx, php, rust, go): `outgoingCalls`/`goToDefinition` to follow the flow forward, `findReferences`/`incomingCalls` for callers, `hover` for the real type at a boundary. Grep only to locate a symbol's position; `Read` for surrounding context. Prefer the Explore agent if the surface is broad (≥3 layers to trace) — give it `LSP` access.
+- Walk the call graph: `grep`/`rg` via Bash by default ("where is X declared" → grep), `Read` for surrounding context. `LSP` (ts/js/tsx, php, rust, go; `ToolSearch("select:LSP")` first) only where grep answers wrong: `outgoingCalls` to follow the flow forward, `findReferences`/`incomingCalls` for callers when names collide, `hover` for the inferred type at a boundary; position from `workspaceSymbol`, always with `query`. Twig, CSS, `.po`, vendor bundles, untyped Backbone: grep and read the source. Prefer the Explore agent if the surface is broad (≥3 layers to trace) — pass it this navigation bullet.
 
 Report a short trace back to the user (3–6 bullets) naming the suspected mechanism(s) BEFORE instrumenting.
 

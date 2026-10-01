@@ -145,8 +145,7 @@ def analyze_sessions(projects_dir: str, cutoff_ts: int) -> dict:
     tool_counter: Counter[str] = Counter()
     task_spawns = 0
     assistant_turns = 0
-    # session_id -> list[(timestamp, had_text_after_codereview)]
-    code_review_followups: dict[str, list[tuple[int, str]]] = defaultdict(list)
+    reviews_run = 0
 
     for path in iter_session_files(projects_dir):
         try:
@@ -160,13 +159,11 @@ def analyze_sessions(projects_dir: str, cutoff_ts: int) -> dict:
                 lines = f.readlines()
         except (OSError, UnicodeDecodeError):
             continue
-        session_id = None
         for line in lines:
             try:
                 obj = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            session_id = session_id or obj.get("sessionId")
             ts = obj.get("timestamp")
             if isinstance(ts, str):
                 try:
@@ -199,18 +196,12 @@ def analyze_sessions(projects_dir: str, cutoff_ts: int) -> dict:
                     for c in content:
                         if isinstance(c, dict) and c.get("type") == "text":
                             disp += c.get("text", "")
-                if "/review-staged" in disp and session_id:
-                    code_review_followups[session_id].append((ts or 0, "invoked"))
+                reviews_run += "/review-staged" in disp
             elif t == "tool_use":
                 # newer formats may surface tool_use at top level
                 name = (obj.get("name") or "").lower()
                 if name:
                     tool_counter[name] += 1
-
-    reviews_run = sum(
-        sum(1 for _, kind in items if kind == "invoked")
-        for items in code_review_followups.values()
-    )
 
     return {
         "assistant_turns": assistant_turns,
