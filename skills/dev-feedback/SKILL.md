@@ -160,7 +160,7 @@ python3 "{skill_dir}/scripts/fetch_mr_details.py" --project-id {project_id} --mr
 
 Чек-лист батча даёт однотипный материал; суть МР («не замена констант, а смена модели тарифов») видит только основная модель.
 
-Кандидаты: merged или opened, `authored`/`author_only`, `complexity: сложная`, по убыванию `comments_count` из `.per_mr`; группа `multi_mr_tasks` — один кандидат. На каждый из 2–3 — субагент **без `model`**, все параллельно. Промпт:
+Кандидаты: merged или opened, `authored`/`author_only`, `complexity: сложная`, по убыванию `comments_count` из `.per_mr`; группа `multi_mr_tasks` — один кандидат. На каждый из 2–3 — субагент с **`model: "opus"`**, все параллельно. Промпт:
 
 > Прочитай МР {project_id}!{iid} разработчика {username}:
 > `python3 "{skill_dir}/scripts/fetch_mr_details.py" --project-id {project_id} --mr-iid {iid} --hostname {hostname}`.
