@@ -4,45 +4,19 @@
 
 import argparse
 import json
+import os
 import re
 import statistics
-import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
-BOT_PATTERNS = ["bot", "deployer", "ci-", "gitlab-"]
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../_lib"))
+from glab_mr import get, is_bot, paginate  # noqa: E402
+
 # «ок», «аудит ок», «кросс-аудит ок», «кросс ок» — это апрув, а не замечание
 APPROVAL_RE = re.compile(r"^\s*(кросс[-\s]?)?(аудит\s+)?ок\s*[.!]?\s*$", re.IGNORECASE)
 FRACTION_RE = re.compile(r"\.\d+")
 WORK_START, WORK_END = 10, 19
-
-
-def glab_api(endpoint, fields, hostname):
-    cmd = ["glab", "api", endpoint, "-X", "GET", "--hostname", hostname]
-    for key, value in fields.items():
-        cmd.extend(["--field", f"{key}={value}"])
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        sys.stderr.write(f"glab api error {endpoint}: {result.stderr}\n")
-        return None
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        sys.stderr.write(f"JSON parse error {endpoint}: {result.stdout[:200]}\n")
-        return None
-
-
-def paginate(endpoint, hostname):
-    items, page = [], 1
-    while True:
-        chunk = glab_api(endpoint, {"per_page": "100", "page": str(page)}, hostname)
-        if not chunk:
-            break
-        items.extend(chunk)
-        if len(chunk) < 100:
-            break
-        page += 1
-    return items
 
 
 def parse_ts(value, tz):
@@ -87,14 +61,10 @@ def segment(start, end):
     return {"calendar_h": calendar_hours(start, end), "work_h": work_hours(start, end)}
 
 
-def is_bot(username):
-    return any(p in (username or "").lower() for p in BOT_PATTERNS)
-
-
 def identity_tokens(username, hostname):
     """Коммиты подписаны именем и почтой, а не username — собираем все варианты."""
     tokens = {username.lower()}
-    users = glab_api("users", {"username": username}, hostname) or []
+    users = get(hostname, "users", {"username": username}) or []
     for user in users:
         for key in ("name", "email", "public_email"):
             if user.get(key):
@@ -129,8 +99,8 @@ def analyze_mr(mr, username, tokens, hostname, tz, now):
     closed = parse_ts(mr.get("closed_at_iso"), tz)
     state = mr.get("state") or ("merged" if merged else "")
 
-    notes = paginate(f"projects/{pid}/merge_requests/{iid}/notes", hostname)
-    commits = paginate(f"projects/{pid}/merge_requests/{iid}/commits", hostname)
+    notes = paginate(hostname, f"projects/{pid}/merge_requests/{iid}/notes", soft=True)
+    commits = paginate(hostname, f"projects/{pid}/merge_requests/{iid}/commits", soft=True)
 
     comments, approvals_at, deploy_marks, reviewers = [], [], [], set()
     for note in notes:

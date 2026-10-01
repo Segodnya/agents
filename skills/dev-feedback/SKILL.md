@@ -18,16 +18,15 @@ trigger: /dev-feedback
 
 Нужны `glab` (авторизован на инстансе) и Python 3.9+.
 
-Субагенты вызывают скрипты через Bash и без разрешения встанут на approve-промпте. Перед первым запуском предложи добавить в **user-level** `~/.claude/settings.json` (project-local субагенты не читают) оба пути — симлинк и реальный:
+Субагенты вызывают скрипты через Bash и без разрешения встанут на approve-промпте. Перед первым запуском предложи добавить в **user-level** `~/.claude/settings.json` (project-local субагенты не читают) путь к скриптам, `SKILL_DIR` — ниже:
 
 ```json
 { "permissions": { "allow": [
-  "Bash(python3 /Users/<you>/.claude/skills/dev-feedback/scripts/*)",
-  "Bash(python3 /ABSOLUTE/REPO/PATH/skills/dev-feedback/scripts/*)"
+  "Bash(python3 SKILL_DIR/scripts/*)"
 ] } }
 ```
 
-`SKILL_DIR` — путь из строки `Base directory for this skill: …`. Нет её — первый существующий из `~/.claude/skills/dev-feedback` и пути в репозитории. Скрипты от cwd не зависят.
+`SKILL_DIR` — путь из строки `Base directory for this skill: …`. Скрипты от cwd не зависят.
 
 ## Step 1: Входные данные
 

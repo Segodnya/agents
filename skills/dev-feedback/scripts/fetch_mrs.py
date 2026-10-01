@@ -2,14 +2,17 @@
 
 import argparse
 import json
+import os
 import re
-import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../_lib"))
+from glab_mr import get, is_bot, paginate  # noqa: E402
 
 TASK_KEY_RE = re.compile(r"[A-Z][A-Z0-9]+-\d+")
 ISO_FRACTION_RE = re.compile(r"\.\d+")
-BOT_PATTERNS = ["bot", "deployer", "ci-", "gitlab-"]
 
 
 def _count(values):
@@ -38,36 +41,6 @@ def task_key(branch):
     return found.group(0) if found else None
 
 
-def glab_api(endpoint, fields, hostname):
-    cmd = ["glab", "api", endpoint, "-X", "GET", "--hostname", hostname]
-    for key, value in fields.items():
-        cmd.extend(["--field", f"{key}={value}"])
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        sys.stderr.write(f"glab api error: {result.stderr}\n")
-        return []
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        sys.stderr.write(f"JSON parse error for {endpoint}: {result.stdout[:200]}\n")
-        return []
-
-
-def fetch_all_pages(endpoint, fields, hostname):
-    all_items = []
-    page = 1
-    while True:
-        fields_with_page = {**fields, "per_page": "100", "page": str(page)}
-        items = glab_api(endpoint, fields_with_page, hostname)
-        if not items:
-            break
-        all_items.extend(items)
-        if len(items) < 100:
-            break
-        page += 1
-    return all_items
-
-
 def activity_in_window(mr, frm, to, username, hostname):
     """Была ли по МР активность внутри окна. Сначала бесплатная проверка по полям
     списочного ответа, и только для неоднозначных — ноты и коммиты."""
@@ -79,22 +52,22 @@ def activity_in_window(mr, frm, to, username, hostname):
     # обе выдачи GitLab отдаёт новейшими вперёд, поэтому свежая активность всегда на
     # первой странице и пагинация не нужна — проверено на MR 674!29886
     pid, iid = mr["project_id"], mr["iid"]
-    notes = glab_api(
+    notes = get(
+        hostname,
         f"projects/{pid}/merge_requests/{iid}/notes",
         {"per_page": "100", "sort": "desc", "order_by": "created_at"},
-        hostname,
     )
     for note in notes or []:
         if note.get("system"):
             continue
         author = (note.get("author", {}) or {}).get("username", "")
-        if any(p in author.lower() for p in BOT_PATTERNS):
+        if is_bot(author):
             continue
         day = utc_day(note.get("created_at"))
         if day and frm <= day <= to:
             return "обсуждение"
 
-    commits = glab_api(f"projects/{pid}/merge_requests/{iid}/commits", {"per_page": "100"}, hostname)
+    commits = get(hostname, f"projects/{pid}/merge_requests/{iid}/commits", {"per_page": "100"})
     username_lower = username.lower()
     for commit in commits or []:
         haystack = f"{commit.get('author_name', '')} {commit.get('author_email', '')}".lower()
@@ -106,13 +79,9 @@ def activity_in_window(mr, frm, to, username, hostname):
 
 
 def check_has_commits_by_user(project_id, mr_iid, username, hostname):
-    commits = glab_api(
-        f"projects/{project_id}/merge_requests/{mr_iid}/commits",
-        {},
-        hostname,
-    )
+    commits = get(hostname, f"projects/{project_id}/merge_requests/{mr_iid}/commits")
     username_lower = username.lower()
-    for commit in commits:
+    for commit in commits or []:
         author_name = (commit.get("author_name") or "").lower()
         author_email = (commit.get("author_email") or "").lower()
         if username_lower in author_name or username_lower in author_email:
@@ -154,11 +123,8 @@ def main():
         found = []
         for state in states:
             sys.stderr.write(f"Fetching {state} MRs {role} {args.username}...\n")
-            found.extend(fetch_all_pages(
-                "merge_requests",
-                {**base_fields, "state": state, f"{role}_username": args.username},
-                args.hostname,
-            ))
+            fields = {**base_fields, "state": state, f"{role}_username": args.username}
+            found.extend(paginate(args.hostname, f"merge_requests?{urlencode(fields)}", soft=True))
         return found
 
     authored_mrs = fetch_by("author")

@@ -16,14 +16,13 @@ disable-model-invocation: true
 {
   "permissions": {
     "allow": [
-      "Bash(python3 /Users/<you>/.claude/skills/perf-review/scripts/*)",
-      "Bash(python3 /ABSOLUTE/REPO/PATH/skills/perf-review/scripts/*)"
+      "Bash(python3 <BASE_DIR>/scripts/*)"
     ]
   }
 }
 ```
 
-Путь — из `Base directory for this skill` (см. Workflow). Скилл обычно через симлинк → добавь оба пути.
+`<BASE_DIR>` — из `Base directory for this skill` (см. Workflow).
 
 ## Workflow
 
@@ -31,7 +30,7 @@ disable-model-invocation: true
    ```bash
    python3 "<BASE_DIR>/scripts/analyze.py" --days 30 --output /tmp/perf-review.json
    ```
-   Если `Base directory` по какой-то причине недоступен — возьми первый существующий из: `~/.claude/skills/perf-review/scripts/analyze.py` (симлинк) или реального пути в репозитории (`.../agents/skills/perf-review/scripts/analyze.py`). Сам `analyze.py` читает данные по абсолютным путям (`~/.claude/...`) и от cwd не зависит.
+   `analyze.py` читает данные по абсолютным путям (`~/.claude/...`) и от cwd не зависит.
 
    Если пользователь явно просит другой период («за неделю», «за квартал», «за всё время») — подставь `--days 7 / 90 / 9999`. По умолчанию — 30.
 

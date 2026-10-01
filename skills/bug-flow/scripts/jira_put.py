@@ -4,13 +4,12 @@
   jira_put.py comment <KEY> <commentId> <file>
   jira_put.py description <KEY> <file>
 """
-import base64, json, os, re, subprocess, sys, urllib.request
+import json, os, sys, urllib.request
 
-raw = open(os.path.expanduser('~/.config/.jira/.config.yml')).read()
-server = re.search(r'^server:\s*(\S+)', raw, re.M).group(1)
-login = re.search(r'^login:\s*(\S+)', raw, re.M).group(1)
-token = os.environ.get('JIRA_API_TOKEN') or subprocess.check_output(
-    ['security', 'find-generic-password', '-s', 'jira-cli', '-w']).decode().strip()
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../_lib'))
+from jira import auth  # noqa: E402
+
+server, authorization = auth()
 
 mode = sys.argv[1]
 if mode == 'comment':
@@ -26,6 +25,6 @@ else:
 
 req = urllib.request.Request(url, data=json.dumps(payload).encode(), method='PUT', headers={
     'Content-Type': 'application/json',
-    'Authorization': 'Basic ' + base64.b64encode(f'{login}:{token}'.encode()).decode(),
+    'Authorization': authorization,
 })
 print(urllib.request.urlopen(req).status)

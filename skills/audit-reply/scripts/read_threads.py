@@ -6,7 +6,7 @@ text of the threads that actually matter — full bodies, never truncated,
 because the shape of a fix is dictated in the tail of a thread, not the head.
 
     read_threads.py threads.json          # index: T1..Tn, file:line, author, gist
-    read_threads.py threads.json 3 7      # full text of T3 and T7
+    read_threads.py threads.json 3 7      # full text of T3 and T7 (or an id prefix, >=8 chars)
 """
 
 import json
@@ -31,7 +31,16 @@ def main():
     with open(sys.argv[1], encoding="utf-8") as fh:
         data = json.load(fh)
     threads = data.get("threads", [])
-    wanted = [int(a) for a in sys.argv[2:]]
+    wanted = []
+    for a in sys.argv[2:]:
+        n = a[1:] if a[:1] in "Tt" and a[1:].isdigit() else a
+        if n.isdigit() and len(n) < 8:
+            wanted.append(int(n))
+            continue
+        hits = [i for i, t in enumerate(threads, 1) if (t.get("discussion_id") or "").startswith(a)]
+        if len(hits) != 1:
+            sys.exit(f"selector {a!r}: {len(hits)} threads match (need T<n> or unique id prefix)")
+        wanted.append(hits[0])
 
     if not wanted:
         opened = sum(1 for t in threads if not t.get("resolved"))
@@ -40,8 +49,9 @@ def main():
         for i, t in enumerate(threads, 1):
             gist = re.sub(r"\s+", " ", t.get("body", "")).strip()[:140]
             size = len(t.get("body", "")) + sum(len(r.get("body", "")) for r in t.get("replies", []))
-            print(f"T{i} {where(t)} @{t['author']} {state(t)} "
-                  f"r={t['reply_count']} [{size}c] | {gist}")
+            last = " last:author" if t.get("last_by_author") else ""
+            print(f"T{i} id={(t.get('discussion_id') or '')[:8]} {where(t)} @{t['author']} "
+                  f"{state(t)} r={t['reply_count']}{last} [{size}c] | {gist}")
         return
 
     for i in wanted:
@@ -49,7 +59,7 @@ def main():
             print(f"=== T{i} — no such thread (have 1..{len(threads)})\n")
             continue
         t = threads[i - 1]
-        print(f"=== T{i} · {where(t)} · @{t['author']} · {state(t)} · {t['created_at']}")
+        print(f"=== T{i} id={t.get('discussion_id')} · {where(t)} · @{t['author']} · {state(t)} · {t['created_at']}")
         print(t.get("body", ""))
         for r in t.get("replies", []):
             print(f"--- reply @{r['author']} · {r['created_at']}")

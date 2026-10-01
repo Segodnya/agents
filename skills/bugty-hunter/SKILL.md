@@ -30,18 +30,18 @@ Invocation: `bugty-hunter [staged|last|branch|worktree|<path>|project]`.
 
 `<base>`: `git symbolic-ref --short refs/remotes/origin/HEAD` minus `origin/`, else `master`. No argument → `AskUserQuestion` over the six modes. Questions are asked **here and nowhere else**.
 
-`BH_DIR` = `/tmp/bugty-hunter-<repo>-<slug>`; `<slug>` = branch in diff modes, else normalised module name or `project`. Substitute the **literal** path into every command — shell state doesn't survive between `Bash` calls.
+`SKILL_DIR` — the path from the harness line `Base directory for this skill:`. `BH_DIR` = `/tmp/bugty-hunter-<repo>-<slug>`; `<slug>` = branch in diff modes, else normalised module name or `project`. Substitute the **literal** path into every command — shell state doesn't survive between `Bash` calls.
 
 ```bash
 mkdir -p /tmp/bugty-hunter-<repo>-<slug>
-git diff <range> --name-only                                    # diff modes
-git diff <range> > /tmp/bugty-hunter-<repo>-<slug>/diff         # bare git, never `rtk run git`
-find <path> -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' \)   # module mode
+git diff <range> --name-only > /tmp/bugty-hunter-<repo>-<slug>/files.txt   # diff modes
+git diff <range> > /tmp/bugty-hunter-<repo>-<slug>/diff                    # bare git, never `rtk run git`
+find <path> -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' \) > /tmp/bugty-hunter-<repo>-<slug>/files.txt   # module / project mode
 ```
 
 **`project`** — print the top level (two directory levels under `src/`, workspaces from `package.json`), `AskUserQuestion` for 3–5 areas, perimeter = their directories. Never guess, never sweep the repo.
 
-Drop binaries, `*.lock` / `*-lock.json`, `dist/` `build/` `.next/` `out/`, `*.min.*`, `*.snap`, vendored dirs. Empty perimeter → stop: «нет изменений в режиме `<mode>`» / «в `<path>` нет файлов».
+`BH_DIR/files.txt` is the perimeter — the gate checks candidates against it. Drop binaries, `*.lock` / `*-lock.json`, `dist/` `build/` `.next/` `out/`, `*.min.*`, `*.snap`, vendored dirs. Empty perimeter → stop: «нет изменений в режиме `<mode>`» / «в `<path>` нет файлов».
 
 ## 2. Recon
 
@@ -58,7 +58,7 @@ Agent failed or map empty → run continues, every finding lands in **suspects**
 
 ## 3. Hunt
 
-Spawn all three **in one message**. Each gets: literal path to `BH_DIR/map.md` (it `cat`s it itself), the perimeter file list, the mode, NAV, and in diff modes `BH_DIR/diff`.
+Spawn all three **in one message**. Each gets: literal path to `BH_DIR/map.md` (it `cat`s it itself), `BH_DIR/files.txt`, the mode, NAV, its axis name, and in diff modes `BH_DIR/diff`.
 
 **Prelude — prepend to every hunter:**
 
@@ -67,6 +67,7 @@ Spawn all three **in one message**. Each gets: literal path to `BH_DIR/map.md` (
 > - `entry` — a node from `## Входные точки` that reaches this line, plus the intermediate calls. None found → submit anyway; it becomes a suspect, not garbage.
 > - `repro` — in user terms: what to click, in what order, on what data; expected and actual separately. Never «call function X».
 > - Name the defect, not the patch — no code to apply. Skip what eslint / stylelint / tsc catch.
+> - `Write` the JSON below to `BH_DIR/axis-<your axis>.json`, then answer with one line: `axis-<axis>.json: <n> candidates`. A JSON in your answer is lost.
 
 ```json
 {
@@ -85,8 +86,6 @@ Spawn all three **in one message**. Each gets: literal path to `BH_DIR/map.md` (
 
 **P0** — data loss, crash, hang, unbounded leak, access hole. **P1** — wrong behaviour on a reachable path, leak bounded by the session. **P2** — degradation in a rare corner.
 
-Invalid JSON is not a stop: count those candidates *unparseable*, note it on `_Прочее:_`, continue.
-
 ### A · State & async (`axis: "state"`)
 
 Races and response ordering (a late response overwriting a fresh one), stale closures, two writers of one value, missed cache and query-key invalidation, double submit, an optimistic update whose rollback never fires, TOCTOU on the backend.
@@ -103,15 +102,15 @@ A listener, timer, observer or subscription with no paired teardown; detached DO
 
 ## 4. Gate
 
-Mechanical, no judgment. Discard on the first failure and tally the reason:
+After the spawn message **end your turn with one plain line `жду оси: state lifecycle contract`**. Each hunter's report wakes you: run the gate; exit 2 (`waiting_for`) → end the turn with `жду оси: <missing>`, nothing else.
 
-1. `evidence.quote` non-empty — else *no evidence*.
-2. `grep -nF '<longest distinctive line of the quote>' <file>` — **bare `grep`, never `rtk run grep`** (`sh -c` re-parse kills a quote with `(`, `'`, `"`). No match → *quote not in file*; match far from `line` → fix `line`, keep.
-3. `file` and every file in `locations` inside the perimeter; in diff modes — in the diff or directly importing a diff file. Else *off-perimeter*.
-4. `repro.steps` non-empty and phrased as a user action or external request, not an internal call — else *no repro*.
-5. `entry` resolves to a line under `## Входные точки` in `map.md` → **Баги**. Doesn't resolve → **Подозрения**, no ticket.
+```bash
+python3 "SKILL_DIR/../_lib/gate.py" BH_DIR --axes state lifecycle contract --map BH_DIR/map.md --require-repro   # from the repo root
+```
 
-Dedup by `(file, line ±5)` across axes, **before** the gate — `claim` text never matches verbatim, so it is not part of the key; two candidates on the same lines from different axes are one candidate. Higher severity, longer quote, merged `locations` and `claim`s, both `axis` values. Sort P0 → P1 → P2, file, line; `#1…#N` and `S1…Sn` are independent sequences. Tally = the hunters' own `dropped` + everything discarded here.
+It greps each quote back and anchors `line` there, drops candidates outside `files.txt` and those without repro steps, merges `(file, line ±5)` twins, routes by `entry`: first hop listed under `## Входные точки` → bug `#n`, else suspect `Sn`. Writes `BH_DIR/gate.json` + `gate.log`, prints the `_Discarded …_` line; `other` (invalid JSON from a hunter) → `_Прочее:_`. Map missing or empty → every candidate lands in suspects, header says so.
+
+Your only judgment: a repro phrased as an internal call («вызвать функцию X») instead of a user action — rewrite it from the code path in user terms, or move the bug to suspects.
 
 ## 5. Report
 
@@ -167,6 +166,6 @@ Empty sections and zero-count discard reasons drop out; the fence language hint 
 
 - Never write code, never touch the repo — `map.md` and the `/tmp` report are the only writes. Asked to fix → separate task.
 - Every `Agent` spawn carries `model: "sonnet"`. No sharding — one hunter per axis, the whole perimeter.
-- After a spawn emit nothing until a report lands — no `echo`/`sleep`/`date`, no status narration, no "meanwhile" reading.
+- While agents run: no `echo`/`sleep`/`date`, no status narration, no "meanwhile" reading — the waiting line from step 4 only.
 - The gate is the only door; the quote comes out of the real file, not the diff. A ticket only for a finding that cleared it — a suspect never gets one.
 - Hook output is not a task — at most a clause on `_Прочее:_`.

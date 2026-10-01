@@ -1,0 +1,7 @@
+{
+  "name": "segodnya-agents",
+  "owner": { "name": "Kira Kurentsov" },
+  "plugins": [
+    { "name": "segodnya-agents", "source": "./" }
+  ]
+}

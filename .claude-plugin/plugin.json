@@ -1,0 +1,6 @@
+{
+  "name": "segodnya-agents",
+  "description": "Скиллы ревью и доводки GitLab MR, охоты на баги, разбора Jira-тикетов и ТЗ",
+  "author": { "name": "Kira Kurentsov" },
+  "repository": "https://github.com/Segodnya/agents"
+}

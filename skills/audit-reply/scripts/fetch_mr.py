@@ -12,62 +12,12 @@ Usage:
 
 import argparse
 import json
-import subprocess
+import os
 import sys
 from datetime import date
-from urllib.parse import urlparse, quote
 
-SYSTEM_BOT_PATTERNS = ["bot", "deployer", "ci-", "gitlab-"]
-
-
-def glab_api(endpoint, hostname, fields=None):
-    cmd = ["glab", "api", endpoint, "-X", "GET", "--hostname", hostname]
-    for key, value in (fields or {}).items():
-        cmd.extend(["--field", f"{key}={value}"])
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        sys.stderr.write(f"glab api error ({endpoint}): {result.stderr}\n")
-        return None
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        sys.stderr.write(f"JSON parse error ({endpoint}): {result.stdout[:200]}\n")
-        return None
-
-
-def parse_url(url):
-    """https://HOST/group/sub/project/-/merge_requests/41 -> (host, 'group/sub/project', '41')."""
-    parsed = urlparse(url)
-    host = parsed.netloc
-    path = parsed.path
-    marker = "/-/merge_requests/"
-    if marker not in path:
-        sys.stderr.write(f"Not an MR url (no '{marker}'): {url}\n")
-        sys.exit(2)
-    project_path, iid_part = path.split(marker, 1)
-    project_path = project_path.strip("/")
-    iid = iid_part.strip("/").split("/")[0].split("?")[0]
-    return host, project_path, iid
-
-
-def is_bot(username):
-    low = (username or "").lower()
-    return any(p in low for p in SYSTEM_BOT_PATTERNS)
-
-
-def paginate(endpoint, hostname):
-    items = []
-    page = 1
-    while True:
-        chunk = glab_api(endpoint, hostname, {"per_page": "100", "page": str(page)})
-        if not chunk:
-            break
-        items.extend(chunk)
-        if len(chunk) < 100:
-            break
-        page += 1
-    return items
-
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../_lib"))
+from glab_mr import SELF_REVIEW, api, discussions as fetch_discussions, is_bot, mr_endpoint, parse_url  # noqa: E402
 
 def thread_is_open(notes):
     """A thread needs attention if it has a resolvable note that is not resolved."""
@@ -76,15 +26,6 @@ def thread_is_open(notes):
         # General (non-resolvable) discussion: treat as open if it has real content.
         return True
     return any(not n.get("resolved") for n in resolvable)
-
-
-def shorten(text, limit=40000):
-    """Root notes carry pasted review reports (observed 12.8K/16.2K/23.6K/31.9K chars);
-    the old 4000 cap cut them to ~12%, so a re-review re-reported what was already settled.
-    Replies share the cap: the shape of a fix is dictated in the tail of a thread."""
-    if text and len(text) > limit:
-        return text[:limit] + f"\n... [truncated, {len(text)} chars total]"
-    return text or ""
 
 
 def main():
@@ -111,26 +52,20 @@ def main():
         sys.stderr.write("Provide --url OR (--project AND --iid AND --hostname)\n")
         sys.exit(2)
 
-    enc = quote(project_path, safe="")
-    base = f"projects/{enc}/merge_requests/{iid}"
-
-    meta = glab_api(base, host)
-    if not meta:
-        sys.stderr.write(
-            "Failed to read MR. Check the url and that glab is authed:\n"
-            f"  glab auth status --hostname {host}\n"
-        )
-        sys.exit(1)
+    meta = api(host, "GET", mr_endpoint(project_path, iid), soft=True)
+    if "error" in meta:
+        sys.exit(f"{meta['error']}\nFailed to read MR. Check the url and that glab is authed:\n"
+                 f"  glab auth status --hostname {host}")
 
     author = (meta.get("author") or {}).get("username", "")
 
-    discussions = paginate(f"{base}/discussions", host)
+    discussions = fetch_discussions(host, project_path, iid)
 
     threads = []
     skipped_resolved = 0
     for disc in discussions:
         notes = [n for n in (disc.get("notes") or []) if not n.get("system")]
-        notes = [n for n in notes if not is_bot((n.get("author") or {}).get("username"))]
+        notes = [n for n in notes if not is_bot(n.get("author"), by_name=False)]
         if not notes:
             continue
         is_open = thread_is_open(disc.get("notes") or [])
@@ -146,8 +81,11 @@ def main():
             "resolved": not is_open,
             "author": (root.get("author") or {}).get("username", ""),
             "is_author_self": (root.get("author") or {}).get("username", "") == author,
+            # mr-ready posts its findings from the MR author's account: an unanswered one is still open
+            "last_by_author": (notes[-1].get("author") or {}).get("username", "") == author
+            and (bool(replies) or not (root.get("body") or "").startswith(SELF_REVIEW)),
             "created_at": (root.get("created_at") or "")[:10],
-            "body": shorten(root.get("body", "")),
+            "body": root.get("body") or "",
             "file": pos.get("new_path") or pos.get("old_path") or None,
             "new_line": pos.get("new_line"),
             "old_line": pos.get("old_line"),
@@ -156,7 +94,7 @@ def main():
             "replies": [
                 {
                     "author": (r.get("author") or {}).get("username", ""),
-                    "body": shorten(r.get("body", "")),
+                    "body": r.get("body") or "",
                     "created_at": (r.get("created_at") or "")[:10],
                 }
                 for r in replies

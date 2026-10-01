@@ -3,32 +3,13 @@
 import argparse
 import json
 import os
-import subprocess
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../_lib"))
+from glab_mr import get, is_bot, paginate  # noqa: E402
 
 MAX_DIFF_LINES_PER_FILE = 500
 CACHE_DIR = "/tmp/dev-feedback"
-BOT_PATTERNS = ["bot", "deployer", "ci-", "gitlab-"]
-
-
-def glab_api(endpoint, fields, hostname):
-    cmd = ["glab", "api", endpoint, "-X", "GET", "--hostname", hostname]
-    for key, value in fields.items():
-        cmd.extend(["--field", f"{key}={value}"])
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        sys.stderr.write(f"glab api error: {result.stderr}\n")
-        return None
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        sys.stderr.write(f"JSON parse error: {result.stdout[:200]}\n")
-        return None
-
-
-def is_bot(username):
-    username_lower = (username or "").lower()
-    return any(pattern in username_lower for pattern in BOT_PATTERNS)
 
 
 def truncate_diff(diff_text):
@@ -50,7 +31,7 @@ def main():
     pid = args.project_id
     iid = args.mr_iid
 
-    changes_data = glab_api(f"projects/{pid}/merge_requests/{iid}/changes", {}, args.hostname)
+    changes_data = get(args.hostname, f"projects/{pid}/merge_requests/{iid}/changes")
 
     changed_files = []
     if changes_data and "changes" in changes_data:
@@ -63,20 +44,7 @@ def main():
                 "diff": truncate_diff(change.get("diff", "")),
             })
 
-    all_notes = []
-    page = 1
-    while True:
-        notes = glab_api(
-            f"projects/{pid}/merge_requests/{iid}/notes",
-            {"per_page": "100", "page": str(page)},
-            args.hostname,
-        )
-        if not notes:
-            break
-        all_notes.extend(notes)
-        if len(notes) < 100:
-            break
-        page += 1
+    all_notes = paginate(args.hostname, f"projects/{pid}/merge_requests/{iid}/notes", soft=True)
 
     comments = []
     for note in all_notes:
