@@ -14,6 +14,7 @@
 | [`local-debug`](skills/local-debug) | Расставляет `console.warn`-пробы, а если баг только на билде — сниппеты в консоль прод-сборки; диагностирует по логам. |
 | [`merge-resolve`](skills/merge-resolve) | Разрешает конфликты git (merge / rebase / cherry-pick / stash) по единому плану. |
 | [`perf-review`](skills/perf-review) | Беспощадное performance-ревью работы с Claude Code за N дней. |
+| [`memory-audit`](skills/memory-audit) | Аудит файловой памяти Claude Code по проекту: каждая запись сверяется с кодом, правилами и скиллами, вердикты «оставить / исправить / слить / удалить» применяются после подтверждения (`scripts/memory.py` — инвентарь и пересборка индекса). |
 | [`tech-task`](skills/tech-task) | Низкоуровневое ТЗ для фронтенд-задачи. |
 
 ## Запуск `mr-ready`
