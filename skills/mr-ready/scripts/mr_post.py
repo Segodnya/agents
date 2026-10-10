@@ -8,7 +8,7 @@ re-fetches and checks.
 
     mr_post.py thread --url MR --gate RS_DIR/gate.json --id '#3'          # thread for a gate.json finding (#n / TKn / Dn), body rendered here
     mr_post.py thread --url MR --file a.ts --line 12 --body-file b.md   # thread with a hand-written body (line outside the diff → unpositioned)
-    mr_post.py reply  --url MR --discussion <id>       --body-file b.md   # reply into a thread
+    mr_post.py reply  --url MR --discussion <id>       --body-file b.md   # reply into a thread (--reopen: unresolve first)
     mr_post.py describe --url MR --body-file block.md                     # upsert marked block
     mr_post.py stats --url MR [--mr-dir MR_DIR]                           # Handoff counters; writes nothing to GitLab
     mr_post.py reply-all --url MR --replies AR_DIR/replies.json --mr-dir MR_DIR [--round r] [--dry-run]
@@ -136,6 +136,11 @@ def reply(host, proj, iid, disc_id, body):
 
 
 def cmd_reply(a, host, proj, iid):
+    if a.reopen:
+        api(host, "PUT", f"{mr_endpoint(proj, iid)}/discussions/{a.discussion}?resolved=false")
+        back = discussion(host, proj, iid, a.discussion)
+        if any(n.get("resolved") for n in back.get("notes", []) if n.get("resolvable")):
+            sys.exit(f"reopen PUT returned but {a.discussion} is still resolved")
     return reply(host, proj, iid, a.discussion, a.body)
 
 
@@ -245,6 +250,7 @@ def main():
     p.add_argument("--file", help="thread: new_path")
     p.add_argument("--line", type=int, help="thread: new_line")
     p.add_argument("--discussion", help="reply: discussion id")
+    p.add_argument("--reopen", action="store_true", help="reply: unresolve the thread first")
     p.add_argument("--mr-dir", help="stats: count MR_DIR/rs-r* rounds; reply-all: where bodies go")
     p.add_argument("--replies", help="reply-all: AR_DIR/replies.json")
     p.add_argument("--round", type=int, default=1, help="reply-all: round number for r<r>-a<n>.md")

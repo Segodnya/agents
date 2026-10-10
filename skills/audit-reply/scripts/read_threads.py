@@ -50,7 +50,7 @@ def main():
             gist = re.sub(r"\s+", " ", t.get("body", "")).strip()[:140]
             size = len(t.get("body", "")) + sum(len(r.get("body", "")) for r in t.get("replies", []))
             last = " last:author" if t.get("last_by_author") else ""
-            print(f"T{i} id={(t.get('discussion_id') or '')[:8]} {where(t)} @{t['author']} "
+            print(f"T{i} id={(t.get('discussion_id') or '')[:8]} note={t.get('note_id')} {where(t)} @{t['author']} "
                   f"{state(t)} r={t['reply_count']}{last} [{size}c] | {gist}")
         return
 

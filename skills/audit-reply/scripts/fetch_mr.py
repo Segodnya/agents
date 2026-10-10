@@ -78,6 +78,7 @@ def main():
         replies = notes[1:]
         threads.append({
             "discussion_id": disc.get("id"),
+            "note_id": root.get("id"),
             "resolved": not is_open,
             "author": (root.get("author") or {}).get("username", ""),
             "is_author_self": (root.get("author") or {}).get("username", "") == author,
