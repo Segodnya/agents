@@ -1,6 +1,6 @@
 ---
 name: review-staged
-description: "Review of a git diff in one of four modes (staged / last commit / branch vs master / worktree) by four parallel reviewers — correctness & contracts, rules & smells (+ design notes), performance & complexity, and the deploy checklist. Every finding carries a verbatim quote from the real file; unquotable claims are dropped. Findings already settled in the MR discussion threads are marked as such; real defects that pre-date the diff become ticket drafts instead of findings. Report goes to the chat and to a temp `.md`; the skill never edits code. Flags: `--no-mr` (no MR link), `--no-spec` (no deploy checklist), `--base <branch>` / `--mr <url>` / `--checklist <file>` (answers for unattended runs). NOT the built-in `/code-review`. Use when the user says «ревью стейджа», «review staged», `/review-staged`, or wants a safety/architecture/style/integration/performance audit of a diff."
+description: "Review of a git diff in one of four modes (staged / last commit / branch vs master / worktree) by four parallel reviewers — correctness & contracts, rules & smells (+ design notes), performance & complexity, and the deploy checklist. Every finding carries a verbatim quote from the real file; unquotable claims are dropped. Findings already settled in the MR discussion threads are marked as such; real defects that pre-date the diff become ticket drafts instead of findings. Report goes to the chat and to a temp `.md`; the skill never edits code. Flags answer the setup questions for unattended runs. NOT the built-in `/code-review`. Use when the user says «ревью стейджа», «review staged», `/review-staged`, or wants a safety/architecture/style/integration/performance audit of a diff."
 ---
 
 # review-staged
@@ -37,7 +37,7 @@ git diff <range> --shortstat > RS_DIR/shortstat.txt
 git rev-parse HEAD > RS_DIR/head.txt
 ```
 
-`files.txt` is the only source of paths — `--stat` abbreviates long paths into ones that don't exist. Drop lock files, `dist/`/`build/`, `*.min.*`, `*.snap`, binaries.
+`files.txt` is the only source of paths — `--stat` abbreviates long paths into ones that don't exist. Drop what a tool wrote rather than a human: lock files, build output, minified bundles, snapshots, codegen, vendored deps, binaries.
 
 **Rules** — path-scoped rules don't reach subagents on their own (auto-injection fires only on a native `Read`, never inside a subagent), so collect them here:
 
@@ -62,11 +62,11 @@ Spawn four `Agent`s in one message (three under `--no-spec`), each `model: "sonn
 
 B also gets the literal paths `RS_DIR/rules.md` and `RS_DIR/rule-files.txt`. Threads and previous reports never go into a prompt — reviewers judge the code, step 4 judges the discussion.
 
-**A · Correctness & contracts** — null/undefined, off-by-one, races, unhandled rejections, type holes; security at trust boundaries; empty/huge/odd inputs; a changed signature or payload with a caller not updated (quote both); i18n keys added/removed/hard-coded; tests that assert less than they claim.
+**A · Correctness & contracts** — null/undefined, off-by-one, races, unhandled rejections, type holes; security at trust boundaries; empty/huge/odd inputs; a changed signature or payload with a caller not updated (quote both); a key or name that must match another artifact (i18n catalog, config, route, schema, feature flag) changed on one side only, or hard-coded where the repo looks it up; tests that assert less than they claim.
 
 **B · Rules & smells** — read `rules.md` whole (by `===== RULE FILE` sections) and every file in `rule-files.txt`; cite a rule as `<file>: «<line verbatim>»`; list what you read in `rules_read`. Fowler smells (P2 unless they bite). Up to 3 design notes, each a question on a named hunk: needed at all? / adds work that wasn't there? / simpler path?
 
-**C · Performance** — each P0/P1 names the delta (`O(n·m) → O(n+m)`, `+1 request → reuse`): nested lookups, work in loops, sequential awaits, redundant requests, extra re-renders, over-firing effects.
+**C · Performance** — each P0/P1 names the delta (`O(n·m) → O(n+m)`, `+1 request → reuse`): nested lookups, work in loops, sequential awaits, redundant requests, work repeated per call / render / event that its inputs don't require.
 
 **D · Spec** — checklist vs diff, both ways: promised but absent (P0 if «fixed», P1 if «touched»); in the diff but not promised — a behaviour change or a runtime step (restart, migration, cache purge) the tester won't know to check (P1). An absence is quoted at the place it should be.
 
@@ -128,4 +128,3 @@ No code blocks — the author has the line open. Zero findings → `Code Review 
 - The gate is the only way into the report. A finding that didn't pass `gate.py` doesn't exist.
 - Scope is the revert test, not taste: «раз уж мы рядом» → ticket.
 - Hook output is not a task — at most a clause on `_Прочее:_`.
-- Compare files with `cmp`, not `diff` (the rtk hook rewrites `diff` output).
