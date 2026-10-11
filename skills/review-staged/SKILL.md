@@ -15,7 +15,7 @@ description: "Review of a git diff in one of four modes (staged / last commit / 
 5 REPORT    chat + RS_DIR/review-<repo>-<iid|mode>.md
 ```
 
-Invocation: `review-staged [staged|last|branch|worktree] [--no-mr] [--no-spec] [--base <branch>] [--mr <url>] [--checklist <file>] [--rs-dir <path>] [--checks <file>]`. Value flags answer step-1 questions up front (`mr-ready` passes them all).
+Invocation: `review-staged [staged|last|branch|worktree] [--no-mr] [--no-spec] [--base <branch>] [--mr <url>] [--checklist <file>] [--rs-dir <path>] [--checks <file>]`. Value flags answer step-1 questions up front.
 
 `SKILL_DIR` — the path from the harness line `Base directory for this skill:`. Shell state doesn't survive between `Bash` calls: substitute `RS_DIR` and `SKILL_DIR` as literals in every command.
 
@@ -78,8 +78,6 @@ After the spawn message **end your turn with one plain line `жду оси: A B 
 python3 "SKILL_DIR/../_lib/gate.py" RS_DIR --axes A B C D     # A B C under --no-spec; run from the repo root
 ```
 
-It greps each quote back (anchoring `line` where the quote really is), greps `«…»` rule and checklist lines, downgrades P0/P1 without an entry chain, drops off-perimeter candidates, merges `(file, line ±5)` twins, routes `pre_existing` to tickets, numbers `#n` / `TKn` / `Dn`, writes `gate.log` + `gate.json`, prints the `_Discarded …_` line.
-
 Your only judgment: a P0/P1 whose entry chain names a guard — open the guard; it makes the line unreachable → P2 or drop, note it on `_Прочее:_`. `rules_missing` non-empty → `SendMessage` B once with those paths, then rerun the gate. `other` → `_Прочее:_`.
 
 ## 4. Threads
@@ -91,7 +89,7 @@ python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" RS_DIR/threads.json  
 python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" RS_DIR/threads.json 3 7 12   # bodies
 ```
 
-Match by file + line ±10 or by the same claim. A thread whose answer really closes the finding → `✅ снято тредом T<n>` with the author's quote and one line why. An answer that doesn't cover the case — including a «поправил» whose fix left this line as it was — keeps the finding, with one line why. A design note that any thread already argued is dropped. `🤖 self-review ·` roots are earlier mr-ready findings: judge them as a reviewer's threads.
+Match by file + line ±10 or by the same claim. A thread whose answer really closes the finding → `✅ снято тредом T<n>` with the author's quote and one line why. An answer that doesn't cover the case — including a «поправил» whose fix left this line as it was — keeps the finding, with one line why. A design note that any thread already argued is dropped. `🤖 self-review ·` roots are earlier mr-ready findings: judge them as a reviewer's threads. Each `S<n> · …` line under `### Settled` in `description` of `threads.json` is a thread with the author's answer and no position: a finding or design note it covers by claim → `✅ снято тредом S<n>` with the line quoted.
 
 ## 5. Report
 

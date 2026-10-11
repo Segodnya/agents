@@ -120,6 +120,7 @@ def main():
         "project_path": project_path,
         "iid": int(iid),
         "title": meta.get("title", ""),
+        "description": meta.get("description") or "",
         "author": author,
         "source_branch": meta.get("source_branch", ""),
         "target_branch": meta.get("target_branch", ""),
