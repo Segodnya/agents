@@ -39,7 +39,7 @@ h3. Кейс воспроизведения
 
 Если ошибок несколько — в «до/после» явно: какая уходит совсем, какая остаётся и как теперь помечена.
 
-Только wiki через REST: `references/jira-wiki.md`, `scripts/jira_put.py`.
+Только wiki через REST: `SKILL_DIR/references/jira-wiki.md`, `SKILL_DIR/scripts/jira_put.py` (SKILL_DIR — абсолютный путь из строки `Base directory for this skill:`, не cwd).
 
 ## 4. Фикс и проверка
 

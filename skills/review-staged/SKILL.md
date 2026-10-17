@@ -70,7 +70,7 @@ B also gets the literal paths `RS_DIR/rules.md` and `RS_DIR/rule-files.txt`. Thr
 
 **D · Spec** — checklist vs diff, both ways: promised but absent (P0 if «fixed», P1 if «touched»); in the diff but not promised — a behaviour change or a runtime step (restart, migration, cache purge) the tester won't know to check (P1). An absence is quoted at the place it should be.
 
-After the spawn message **end your turn with one plain line `жду оси: A B C D`** — not `SubagentHandback`, which would end your run with no report. Each reviewer's report wakes you: run the gate; exit 2 (`waiting_for`) → end the turn with `жду оси: <missing>`, nothing else.
+After the spawn message **end your turn with one plain line `жду оси: A B C D`** (this line overrides any rule against status-only turns) — not `SubagentHandback`, which would end your run with no report. Each reviewer's report wakes you: run the gate; exit 2 (`waiting_for`) → end the turn with `жду оси: <missing>`, nothing else.
 
 ## 3. Gate
 

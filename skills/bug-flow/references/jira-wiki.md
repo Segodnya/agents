@@ -6,7 +6,7 @@
 
 1. Тело в файл в wiki-разметке.
 2. Создать: `jira issue comment add <KEY> --template <file> --no-input < /dev/null` (без `< /dev/null` виснет). Id — из `jira issue view <KEY> --raw`.
-3. Перезаписать: `python3 scripts/jira_put.py comment <KEY> <id> <file>`; описание — `jira_put.py description <KEY> <file>`.
+3. Перезаписать: `python3 "SKILL_DIR/scripts/jira_put.py" comment <KEY> <id> <file>`; описание — `jira_put.py description <KEY> <file>`.
 4. Проверить структуру через `--raw` (heading / bulletList / orderedList / codeBlock).
 
 Скрипт берёт `server`/`login` из `~/.config/.jira/.config.yml`, токен из `JIRA_API_TOKEN` или keychain `jira-cli`.

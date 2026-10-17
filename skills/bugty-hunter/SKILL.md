@@ -102,7 +102,7 @@ A listener, timer, observer or subscription with no paired teardown; detached DO
 
 ## 4. Gate
 
-After the spawn message **end your turn with one plain line `жду оси: state lifecycle contract`**. Each hunter's report wakes you: run the gate; exit 2 (`waiting_for`) → end the turn with `жду оси: <missing>`, nothing else.
+After the spawn message **end your turn with one plain line `жду оси: state lifecycle contract`** (this line overrides any rule against status-only turns). Each hunter's report wakes you: run the gate; exit 2 (`waiting_for`) → end the turn with `жду оси: <missing>`, nothing else.
 
 ```bash
 python3 "SKILL_DIR/../_lib/gate.py" BH_DIR --axes state lifecycle contract --map BH_DIR/map.md --require-repro   # from the repo root
