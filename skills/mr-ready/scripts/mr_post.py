@@ -63,6 +63,20 @@ def from_gate(a):
     f = next((x for x in g["findings"] + g["tickets"] + g["design_notes"] if x["id"] == a.id), None)
     if f is None:
         sys.exit(f"{a.id} not in {a.gate}")
+    # reviewers may write absolute paths; GitLab answers an absolute new_path with a bare 500,
+    # and in the body they leak the local checkout path
+    holders = [f, f.get("evidence") or {}]
+    if any(os.path.isabs(p) for h in holders for p in [h.get("file") or ""] + (h.get("locations") or [])):
+        top = git("rev-parse", "--show-toplevel")
+
+        def rel(p):
+            return os.path.relpath(p, top) if os.path.isabs(p) else p
+
+        for h in holders:
+            if h.get("file"):
+                h["file"] = rel(h["file"])
+            if h.get("locations"):
+                h["locations"] = [rel(p) for p in h["locations"]]
     if "file" not in f:
         loc = (f.get("locations") or [""])[0]
         f["file"], _, line = loc.rpartition(":")
