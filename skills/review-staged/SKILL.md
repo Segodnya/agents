@@ -15,7 +15,7 @@ description: "Review of a git diff in one of four modes (staged / last commit / 
 5 REPORT    chat + RS_DIR/review-<repo>-<iid|mode>.md
 ```
 
-Invocation: `review-staged [staged|last|branch|worktree] [--no-mr] [--no-spec] [--base <branch>] [--mr <url>] [--checklist <file>] [--rs-dir <path>] [--checks <file>]`. Value flags answer step-1 questions up front.
+Invocation: `review-staged [staged|last|branch|worktree] [--no-mr] [--no-spec] [--base <branch>] [--mr <url>] [--checklist <file>] [--rs-dir <path>] [--checks <file>] [--threads <file>]`. Value flags answer step-1 questions up front.
 
 `SKILL_DIR` — the path from the harness line `Base directory for this skill:`. Shell state doesn't survive between `Bash` calls: substitute `RS_DIR` and `SKILL_DIR` as literals in every command.
 
@@ -49,6 +49,7 @@ stderr `matched <k> of <n>` goes into the report header verbatim.
 
 **MR** — `--mr`, else `glab mr list --source-branch <branch>` and confirm; neither and no `--no-mr` → ask. Threads to a file, read in step 4:
 `python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR>" --all > RS_DIR/threads.json` (`--all`: resolved threads are exactly «уже обсудили»).
+`--threads <file>` — the caller already holds the threads in the same shape: `cp` it to `RS_DIR/threads.json`, no GitLab call.
 
 **Checklist** — `--checklist <file>` → `cp` to `RS_DIR/checklist.md`; else the user pastes it and you save it verbatim; `--no-spec` → none. Reviewers read the file; a checklist retold in your words is how a reviewer ends up quoting a rule nobody wrote.
 

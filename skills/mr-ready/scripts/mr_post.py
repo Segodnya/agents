@@ -6,93 +6,39 @@ glab quirks this hides: a JSON body needs `-H 'Content-Type: application/json' -
 still exits 0 with an `id` on stdout — so nothing here trusts an exit code, every subcommand
 re-fetches and checks.
 
-    mr_post.py thread --url MR --gate RS_DIR/gate.json --id '#3'          # thread for a gate.json finding (#n / TKn / Dn), body rendered here;
-                                                                          # an entry with no file:line → unpositioned thread
     mr_post.py thread --url MR --file a.ts --line 12 --body-file b.md   # thread with a hand-written body (line outside the diff → unpositioned)
     mr_post.py reply  --url MR --discussion <id>       --body-file b.md   # reply into a thread (--reopen: unresolve first)
     mr_post.py describe --url MR --body-file block.md                     # upsert marked block
-    mr_post.py stats --url MR [--mr-dir MR_DIR]                           # Handoff counters; writes nothing to GitLab
-    mr_post.py reply-all --url MR --replies AR_DIR/replies.json --mr-dir MR_DIR [--round r] [--dry-run]
-                                                                          # post every reply (verified_by ran in reply_add.py); JSON {posted, skipped, held, failed}
-                                                                          # held: a REPLY into a thread that quotes a rule — the user decides it
+    mr_post.py publish --url MR --mr-dir MR_DIR [--dry-run]              # mr-ready handoff, after push: queued replies + threads for
+                                                                          # held L-items from state.json; JSON {replies, threads, skipped, failed}
 
 Prints one JSON line per call: {"ok": true, "discussion_id": ..., "note_id": ...}; an unpositioned
 thread adds "general": true.
 """
 
 import argparse
-import glob
 import json
 import os
 import re
-import subprocess
 import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../_lib"))
-from glab_mr import SELF_REVIEW as SELF, api, discussions, mr_endpoint, parse_url  # noqa: E402
+from glab_mr import api, discussions, mr_endpoint, parse_url  # noqa: E402
+import state  # noqa: E402
 
 
-MARK_OPEN = "<!-- mr-ready -->"
-MARK_CLOSE = "<!-- /mr-ready -->"
-RULE_LINE = re.compile(r"^\(.*«.+»\)$", re.M)
+MARK_OPEN, MARK_CLOSE = state.MARK_OPEN, state.MARK_CLOSE
 
 
 def discussion(host, proj, iid, disc_id):
     return api(host, "GET", f"{mr_endpoint(proj, iid)}/discussions/{disc_id}")
 
 
-def render(f):
-    """Thread body for a gate.json entry. The author sees the line it hangs on: no code, no recipe —
-    what is wrong, where else, how to reproduce, which rule."""
-    ev = f.get("evidence") or {}
-    title = f.get("claim") or f.get("question") or ""
-    lines = [f"{SELF} · {'Вне скоупа: ' if f['id'].startswith('TK') else ''}{title}"]
-    here = f"{f['file']}:{f['line']}"
-    others = [x for x in ev.get("locations") or f.get("locations") or [] if x != here]
-    if others:
-        lines.append("Где ещё: " + ", ".join(others))
-    if ev.get("repro"):
-        lines.append("repro: " + ev["repro"])
-    if f.get("rule_source") and f["rule_source"] != "universal":
-        lines.append(f"({f['rule_source']})")
-    return "\n\n".join(lines)
-
-
-def from_gate(a):
-    """--gate/--id → a.file, a.line, a.body. A design note has no file/line of its own: its first location."""
-    with open(a.gate, encoding="utf-8") as fh:
-        g = json.load(fh)
-    f = next((x for x in g["findings"] + g["tickets"] + g["design_notes"] if x["id"] == a.id), None)
-    if f is None:
-        sys.exit(f"{a.id} not in {a.gate}")
-    # reviewers may write absolute paths; GitLab answers an absolute new_path with a bare 500,
-    # and in the body they leak the local checkout path
-    holders = [f, f.get("evidence") or {}]
-    if any(os.path.isabs(p) for h in holders for p in [h.get("file") or ""] + (h.get("locations") or [])):
-        top = git("rev-parse", "--show-toplevel")
-
-        def rel(p):
-            return os.path.relpath(p, top) if os.path.isabs(p) else p
-
-        for h in holders:
-            if h.get("file"):
-                h["file"] = rel(h["file"])
-            if h.get("locations"):
-                h["locations"] = [rel(p) for p in h["locations"]]
-    if "file" not in f:
-        loc = (f.get("locations") or [""])[0]
-        f["file"], _, line = loc.rpartition(":")
-        m = re.match(r"\d+", line)
-        f["line"] = int(m.group()) if m else 0
-    # no file:line (a design note over several files) → cmd_thread posts it unpositioned
-    a.file, a.line, a.body = (f["file"] or None), (int(f["line"]) or None), render(f)
-
-
 def old_line_of(base, head, path, line):
     """GitLab takes a line the diff didn't add only with its old_line too — without it: 400 line_code.
     → old_line; None for an added line or when the local repo lacks the refs."""
-    r = subprocess.run(["git", "diff", "-U0", base, head, "--", path], capture_output=True, text=True)
+    r = state.git("diff", "-U0", base, head, "--", path, check=False)
     if r.returncode:
         return None
     delta = 0
@@ -114,11 +60,10 @@ def unpositioned(host, proj, iid, body):
     return {"ok": True, "discussion_id": disc_id, "note_id": back["notes"][0]["id"], "general": True}
 
 
-def cmd_thread(a, host, proj, iid):
+def cmd_thread(a, host, proj, iid, refs=None):
     if not (a.file and a.line):
         return unpositioned(host, proj, iid, a.body)
-    mr = api(host, "GET", mr_endpoint(proj, iid))
-    refs = mr["diff_refs"]
+    refs = refs or api(host, "GET", mr_endpoint(proj, iid))["diff_refs"]
     position = {
         "position_type": "text",
         "base_sha": refs["base_sha"], "head_sha": refs["head_sha"], "start_sha": refs["start_sha"],
@@ -189,119 +134,85 @@ def cmd_describe(a, host, proj, iid):
     return {"ok": True}
 
 
-def git(*args):
-    r = subprocess.run(["git", *args], capture_output=True, text=True)
-    if r.returncode != 0:
-        sys.exit(f"git {' '.join(args)}: {r.stderr.strip()}")
-    return r.stdout.strip()
-
-
-def cmd_stats(a, host, proj, iid):
-    """Counters for the Handoff line, over the whole MR: earlier runs wiped MR_DIR, not their threads."""
-    mr = api(host, "GET", mr_endpoint(proj, iid))
-    repo = os.path.basename(git("rev-parse", "--show-toplevel"))
-    # a round = a review-staged dir holding review-<repo>-<iid>.md: MR_DIR/rs-r* plus old /tmp/review-staged-<repo>-*
-    dirs = glob.glob(f"{glob.escape(a.mr_dir)}/rs-r*/") if a.mr_dir else []
-    dirs += glob.glob(f"/tmp/review-staged-{glob.escape(repo)}-*/")
-    stamps = sorted(
-        datetime.fromtimestamp(os.path.getmtime(f)).astimezone()
-        for d in dirs
-        for f in [f"{d}review-{repo}-{iid}.md"]
-        if os.path.exists(f)
-    )
-    # the MR's commits, not HEAD's: the checkout may already sit on another branch
-    git("fetch", "-q", "origin", mr["source_branch"], mr["target_branch"])
-    commits = git("log", "--format=%H", f"origin/{mr['target_branch']}..origin/{mr['source_branch']}").split()
-    ours = [d for d in discussions(host, proj, iid) if d["notes"] and d["notes"][0]["body"].startswith(SELF)]
-    n = f = k = v = 0
-    for d in ours:
-        replies = " ".join(x["body"] for x in d["notes"][1:] if x["body"].startswith(SELF))
-        if not replies:
-            continue
-        k += 1
-        n += not all(x.get("resolved") for x in d["notes"] if x.get("resolvable"))
-        # a reply cites a short hash of any length git chose; match it as a prefix of the full one
-        f += any(c.startswith(h) for h in re.findall(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b", replies) for c in commits)
-        v += "откатил" in replies.lower()
-    first_thread = min((datetime.fromisoformat(d["notes"][0]["created_at"].replace("Z", "+00:00")) for d in ours),
-                       default=None)
-    # /tmp was cleaned since the first round → the count is a lower bound
-    partial = bool(first_thread and (not stamps or first_thread < stamps[0]))
-    r = f"≥{len(stamps)}" if partial else str(len(stamps))
-    return {"ok": True, "r": r, "n": n, "f": f, "k": k, "v": v, "threads": len(ours)}
-
-
-def cmd_reply_all(a, host, proj, iid):
-    with open(a.replies, encoding="utf-8") as fh:
-        replies = json.load(fh)
-    built = os.path.getmtime(a.replies)
-    mr_author = api(host, "GET", mr_endpoint(proj, iid))["author"]["username"]
-    out = {"posted": [], "skipped": [], "held": [], "failed": []}
-    os.makedirs(a.mr_dir, exist_ok=True)
-    # verified_by already ran when reply_add.py wrote each entry; one listing serves every reply
-    discs = {d["id"]: d for d in discussions(host, proj, iid)}
-    for n, rep in enumerate(replies, 1):
-        did = rep["discussion_id"]
+def cmd_publish(a, host, proj, iid):
+    """Every write of a mr-ready run, once. state.json is saved after each post: a rerun never posts twice."""
+    s = state.load(a.mr_dir)
+    src = s["mr"]["source_branch"]
+    # a reply cites commits: they must already be on the remote
+    if not a.dry_run and state.git("merge-base", "--is-ancestor", "HEAD", f"origin/{src}", check=False).returncode:
+        sys.exit(f"HEAD is not on origin/{src}: push and `git fetch origin {src}` first")
+    author = s["mr"]["author"]
+    out = {"replies": [], "threads": [], "skipped": [], "failed": []}
+    queued = {k: it for k, it in s["items"].items() if it["status"] == "queued"}
+    discs = {d["id"]: d for d in discussions(host, proj, iid)} if queued else {}
+    for did, r in queued.items():
         disc = discs.get(did)
         if disc is None:
-            out["failed"].append({"discussion_id": did, "reason": "thread not found"})
+            out["failed"].append({"id": did, "reason": "thread not found"})
             continue
-        late = [x for x in disc["notes"] if not x.get("system") and x["author"]["username"] != mr_author
-                and datetime.fromisoformat(x["created_at"].replace("Z", "+00:00")).timestamp() > built]
+        late = [x for x in disc["notes"] if not x.get("system") and x["author"]["username"] != author
+                and datetime.fromisoformat(x["created_at"].replace("Z", "+00:00")).timestamp() > r["reply"]["at"]]
         if late:
-            out["skipped"].append({"discussion_id": did, "reason": f"new note by @{late[-1]['author']['username']} after the replies were built"})
+            # the next run's Ground imports the new note and the fixer answers it
+            out["skipped"].append({"id": did, "reason": f"new note by @{late[-1]['author']['username']}"})
             continue
-        # render() puts a non-universal rule_source as a `(… «quote»)` line; a REPLY there is the user's call
-        if rep.get("kind") == "REPLY" and RULE_LINE.search(disc["notes"][0]["body"]):
-            out["held"].append({"discussion_id": did, "reason": "thread quotes a rule: REPLY needs the user's decision"})
-            continue
-        path = f"{a.mr_dir}/r{a.round}-a{n}.md"
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(rep["body"])
         if a.dry_run:
-            out["posted"].append({"discussion_id": did, "body_file": path, "dry_run": True})
+            out["replies"].append({"id": did, "body": r["reply"]["body"], "dry_run": True})
             continue
         try:
-            out["posted"].append({**reply(host, proj, iid, did, rep["body"]), "body_file": path})
+            res = reply(host, proj, iid, did, r["reply"]["body"])
         except SystemExit as e:
-            out["failed"].append({"discussion_id": did, "reason": str(e)})
+            out["failed"].append({"id": did, "reason": str(e)})
+            continue
+        r.update(status="posted", note_id=res["note_id"])
+        state.save(a.mr_dir, s)
+        out["replies"].append({"id": did, "note_id": res["note_id"]})
+    held = {k: it for k, it in s["items"].items()
+            if state.local(it) and it["status"] == "open" and it.get("cat") in state.HANDOFF_CATS}
+    # diff_refs don't change within a run: one GET for every positioned thread
+    refs = api(host, "GET", mr_endpoint(proj, iid))["diff_refs"] if held and not a.dry_run else None
+    for lid, it in held.items():
+        why = state.HANDOFF_CATS[it["cat"]] + (f": {it['reason']}" if it["cat"] == "reverted" and it["reason"] else "")
+        ns = argparse.Namespace(file=it["file"], line=it["line"], body=f"{state.render(it)}\n\n_{why}_")
+        if a.dry_run:
+            out["threads"].append({"id": lid, "body": ns.body, "dry_run": True})
+            continue
+        try:
+            res = cmd_thread(ns, host, proj, iid, refs)
+        except SystemExit as e:
+            out["failed"].append({"id": lid, "reason": str(e)})
+            continue
+        it.update(status="posted", discussion_id=res["discussion_id"])
+        state.save(a.mr_dir, s)
+        out["threads"].append({"id": lid, "discussion_id": res["discussion_id"]})
     return out
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("cmd", choices=["thread", "reply", "describe", "stats", "reply-all"])
+    p.add_argument("cmd", choices=["thread", "reply", "describe", "publish"])
     p.add_argument("--url", required=True)
     p.add_argument("--body-file", help="markdown body; a file, so quoting never bites")
-    p.add_argument("--gate", help="thread: RS_DIR/gate.json")
-    p.add_argument("--id", help="thread: #n / TKn / Dn from --gate")
     p.add_argument("--file", help="thread: new_path")
     p.add_argument("--line", type=int, help="thread: new_line")
     p.add_argument("--discussion", help="reply: discussion id")
     p.add_argument("--reopen", action="store_true", help="reply: unresolve the thread first")
-    p.add_argument("--mr-dir", help="stats: count MR_DIR/rs-r* rounds; reply-all: where bodies go")
-    p.add_argument("--replies", help="reply-all: AR_DIR/replies.json")
-    p.add_argument("--round", type=int, default=1, help="reply-all: round number for r<r>-a<n>.md")
-    p.add_argument("--dry-run", action="store_true", help="reply-all: check threads, post nothing")
+    p.add_argument("--mr-dir", help="publish: MR_DIR with state.json")
+    p.add_argument("--dry-run", action="store_true", help="publish: list what would be posted, post nothing")
     a = p.parse_args()
-    if a.cmd == "reply-all" and not (a.replies and a.mr_dir):
-        p.error("reply-all needs --replies and --mr-dir")
-    if a.cmd == "thread" and a.gate:
-        if not a.id:
-            p.error("thread --gate needs --id")
-        from_gate(a)
-    elif a.cmd not in ("stats", "reply-all"):
+    if a.cmd == "publish" and not a.mr_dir:
+        p.error("publish needs --mr-dir")
+    if a.cmd != "publish":
         if not a.body_file:
             p.error(f"{a.cmd} needs --body-file")
         with open(a.body_file, encoding="utf-8") as fh:
             a.body = fh.read().strip()
-    if a.cmd == "thread" and not a.gate and not (a.file and a.line):
+    if a.cmd == "thread" and not (a.file and a.line):
         p.error("thread needs --file and --line")
     if a.cmd == "reply" and not a.discussion:
         p.error("reply needs --discussion")
     host, proj, iid = parse_url(a.url)
-    fn = {"thread": cmd_thread, "reply": cmd_reply, "describe": cmd_describe, "stats": cmd_stats,
-          "reply-all": cmd_reply_all}[a.cmd]
+    fn = {"thread": cmd_thread, "reply": cmd_reply, "describe": cmd_describe, "publish": cmd_publish}[a.cmd]
     print(json.dumps(fn(a, host, proj, iid), ensure_ascii=False))
 
 
