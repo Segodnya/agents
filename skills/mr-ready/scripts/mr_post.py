@@ -6,16 +6,18 @@ glab quirks this hides: a JSON body needs `-H 'Content-Type: application/json' -
 still exits 0 with an `id` on stdout — so nothing here trusts an exit code, every subcommand
 re-fetches and checks.
 
-    mr_post.py thread --url MR --gate RS_DIR/gate.json --id '#3'          # thread for a gate.json finding (#n / TKn / Dn), body rendered here
+    mr_post.py thread --url MR --gate RS_DIR/gate.json --id '#3'          # thread for a gate.json finding (#n / TKn / Dn), body rendered here;
+                                                                          # an entry with no file:line → unpositioned thread
     mr_post.py thread --url MR --file a.ts --line 12 --body-file b.md   # thread with a hand-written body (line outside the diff → unpositioned)
     mr_post.py reply  --url MR --discussion <id>       --body-file b.md   # reply into a thread (--reopen: unresolve first)
     mr_post.py describe --url MR --body-file block.md                     # upsert marked block
     mr_post.py stats --url MR [--mr-dir MR_DIR]                           # Handoff counters; writes nothing to GitLab
     mr_post.py reply-all --url MR --replies AR_DIR/replies.json --mr-dir MR_DIR [--round r] [--dry-run]
-                                                                          # post every reply (verified_by ran in reply_add.py); JSON {posted, skipped, failed}
+                                                                          # post every reply (verified_by ran in reply_add.py); JSON {posted, skipped, held, failed}
+                                                                          # held: a REPLY into a thread that quotes a rule — the user decides it
 
 Prints one JSON line per call: {"ok": true, "discussion_id": ..., "note_id": ...}; an unpositioned
-fallback thread adds "general": true.
+thread adds "general": true.
 """
 
 import argparse
@@ -33,6 +35,7 @@ from glab_mr import SELF_REVIEW as SELF, api, discussions, mr_endpoint, parse_ur
 
 MARK_OPEN = "<!-- mr-ready -->"
 MARK_CLOSE = "<!-- /mr-ready -->"
+RULE_LINE = re.compile(r"^\(.*«.+»\)$", re.M)
 
 
 def discussion(host, proj, iid, disc_id):
@@ -82,9 +85,8 @@ def from_gate(a):
         f["file"], _, line = loc.rpartition(":")
         m = re.match(r"\d+", line)
         f["line"] = int(m.group()) if m else 0
-    if not f["file"] or not f["line"]:
-        sys.exit(f"{a.id} has no file:line — post it with glab mr note")
-    a.file, a.line, a.body = f["file"], int(f["line"]), render(f)
+    # no file:line (a design note over several files) → cmd_thread posts it unpositioned
+    a.file, a.line, a.body = (f["file"] or None), (int(f["line"]) or None), render(f)
 
 
 def old_line_of(base, head, path, line):
@@ -103,7 +105,18 @@ def old_line_of(base, head, path, line):
     return line - delta
 
 
+def unpositioned(host, proj, iid, body):
+    created = api(host, "POST", f"{mr_endpoint(proj, iid)}/discussions", {"body": body})
+    disc_id = created.get("id")
+    back = discussion(host, proj, iid, disc_id) if disc_id else {}
+    if not back.get("notes"):
+        sys.exit("thread POST returned an id that GitLab does not have")
+    return {"ok": True, "discussion_id": disc_id, "note_id": back["notes"][0]["id"], "general": True}
+
+
 def cmd_thread(a, host, proj, iid):
+    if not (a.file and a.line):
+        return unpositioned(host, proj, iid, a.body)
     mr = api(host, "GET", mr_endpoint(proj, iid))
     refs = mr["diff_refs"]
     position = {
@@ -117,24 +130,21 @@ def cmd_thread(a, host, proj, iid):
     body = {"body": a.body, "position": position}
     created = api(host, "POST", f"{mr_endpoint(proj, iid)}/discussions", body, soft=True)
     # a position error (the line is not in the diff) → unpositioned thread; any other error is fatal, in full
-    is_general = bool(re.search(r"line_code|position", created.get("error", ""), re.I))
-    if is_general:
+    if re.search(r"line_code|position", created.get("error", ""), re.I):
         print(f"position refused, falling back to unpositioned: {created['error']}", file=sys.stderr)
         # the line is not in the diff, GitLab refuses a positioned thread — keep the place in the body
         where = f"`{a.file}:{a.line}`"
         # after the title: audit-reply spots our findings by the `🤖 self-review ·` prefix
         title, _, rest = a.body.partition("\n")
         text = a.body if where in a.body else f"{title}\n\n{where}\n{rest}"
-        created = api(host, "POST", f"{mr_endpoint(proj, iid)}/discussions", {"body": text})
-    elif "error" in created:
+        return unpositioned(host, proj, iid, text)
+    if "error" in created:
         sys.exit(f"thread POST: {created['error']}")
     disc_id = created.get("id")
     back = discussion(host, proj, iid, disc_id) if disc_id else {}
     if not back.get("notes"):
         sys.exit("thread POST returned an id that GitLab does not have")
     note = back["notes"][0]
-    if is_general:
-        return {"ok": True, "discussion_id": disc_id, "note_id": note["id"], "general": True}
     pos = note.get("position") or {}
     if pos.get("new_path") != a.file or pos.get("new_line") != a.line:
         sys.exit(f"thread created but position dropped: got {pos}")
@@ -226,7 +236,7 @@ def cmd_reply_all(a, host, proj, iid):
         replies = json.load(fh)
     built = os.path.getmtime(a.replies)
     mr_author = api(host, "GET", mr_endpoint(proj, iid))["author"]["username"]
-    out = {"posted": [], "skipped": [], "failed": []}
+    out = {"posted": [], "skipped": [], "held": [], "failed": []}
     os.makedirs(a.mr_dir, exist_ok=True)
     # verified_by already ran when reply_add.py wrote each entry; one listing serves every reply
     discs = {d["id"]: d for d in discussions(host, proj, iid)}
@@ -240,6 +250,10 @@ def cmd_reply_all(a, host, proj, iid):
                 and datetime.fromisoformat(x["created_at"].replace("Z", "+00:00")).timestamp() > built]
         if late:
             out["skipped"].append({"discussion_id": did, "reason": f"new note by @{late[-1]['author']['username']} after the replies were built"})
+            continue
+        # render() puts a non-universal rule_source as a `(… «quote»)` line; a REPLY there is the user's call
+        if rep.get("kind") == "REPLY" and RULE_LINE.search(disc["notes"][0]["body"]):
+            out["held"].append({"discussion_id": did, "reason": "thread quotes a rule: REPLY needs the user's decision"})
             continue
         path = f"{a.mr_dir}/r{a.round}-a{n}.md"
         with open(path, "w", encoding="utf-8") as fh:
@@ -281,7 +295,7 @@ def main():
             p.error(f"{a.cmd} needs --body-file")
         with open(a.body_file, encoding="utf-8") as fh:
             a.body = fh.read().strip()
-    if a.cmd == "thread" and not (a.file and a.line):
+    if a.cmd == "thread" and not a.gate and not (a.file and a.line):
         p.error("thread needs --file and --line")
     if a.cmd == "reply" and not a.discussion:
         p.error("reply needs --discussion")
