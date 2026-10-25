@@ -69,7 +69,7 @@ B also gets the literal paths `RS_DIR/rules.md` and `RS_DIR/rule-files.txt`. Thr
 
 **C · Performance** — each P0/P1 names the delta (`O(n·m) → O(n+m)`, `+1 request → reuse`): nested lookups, work in loops, sequential awaits, redundant requests, work repeated per call / render / event that its inputs don't require.
 
-**D · Spec** — checklist vs diff, both ways: promised but absent (P0 if «fixed», P1 if «touched»); in the diff but not promised — a behaviour change or a runtime step (restart, migration, cache purge) the tester won't know to check (P1). An absence is quoted at the place it should be.
+**D · Spec** — checklist vs diff, three ways: promised but absent (P0 if «fixed», P1 if «touched»); promised but contradicted — the diff does otherwise than the item says (priority as absent: a defect in the code, not a checklist edit); in the diff but not promised — a behaviour change or a runtime step (restart, migration, cache purge) the tester won't know to check (P1). Done when every visible change in the diff (class, token, size, colour, text, markup element) and every runtime step maps to a checklist item or to one finding — one exhaustive pass, so the next round finds nothing new. An absence is quoted at the place it should be.
 
 After the spawn message **end your turn with one plain line `жду оси: A B C D`** (this line overrides any rule against status-only turns) — not `SubagentHandback`, which would end your run with no report. Each reviewer's report wakes you: run the gate; exit 2 (`waiting_for`) → end the turn with `жду оси: <missing>`, nothing else.
 

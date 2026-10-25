@@ -12,6 +12,7 @@
     state.py settle   --mr-dir MR_DIR --text "решение · почему" [--replace S2 | --drop S2]
     state.py threads  --mr-dir MR_DIR --for review|fix --out FILE      # fetch_mr.py shape for review-staged / audit-reply --threads
     state.py describe --mr-dir MR_DIR --summary-file F --out FILE      # the block for mr_post.py describe
+                                                                       # rejected items whose code is gone at HEAD are left out
     state.py show     --mr-dir MR_DIR                                  # compact listing for the orchestrator
 
 An item is `L<n>` (origin local: a gate.json #n / TKn / Dn or a --claim) or a GitLab discussion_id (origin gitlab:
@@ -66,6 +67,28 @@ def save(mr_dir, s):
 
 def head():
     return git("rev-parse", "HEAD").stdout.strip()
+
+
+def file_at_head(file):
+    r = git("show", f"HEAD:{file}", check=False)
+    return None if r.returncode else r.stdout
+
+
+def anchor_of(file, line, quote):
+    """Code the item points at, to tell later whether a fix removed it: the quote, else the anchored line."""
+    if quote:
+        return next((ln.strip() for ln in quote.splitlines() if ln.strip()), None)
+    content = file_at_head(file) if file and line else None
+    lines = content.splitlines() if content else []
+    return lines[line - 1].strip() or None if 0 < line <= len(lines) else None
+
+
+def superseded(it):
+    """The anchored file or code is gone at HEAD: a later fix replaced what the item was about."""
+    if not it.get("file"):
+        return False
+    content = file_at_head(it["file"])
+    return content is None or bool(it.get("anchor")) and it["anchor"] not in content
 
 
 def where(it):
@@ -191,8 +214,10 @@ def gate_entry(g, gid, top):
         m = re.match(r"\d+", ln)
         line = int(m.group()) if m else None
     rule = f.get("rule_source")
+    line = int(line) if line else None
     return {"kind": {"TK": "ticket", "D": "note"}.get(re.match(r"[A-Z]*", gid.lstrip("#")).group(), "finding"),
-            "claim": f.get("claim") or f.get("question") or "", "file": file or None, "line": int(line) if line else None,
+            "claim": f.get("claim") or f.get("question") or "", "file": file or None, "line": line,
+            "anchor": anchor_of(file, line, ev.get("quote")),
             "locations": locs, "repro": ev.get("repro"),
             "rule_source": rule, "rule": bool(rule and rule != "universal")}
 
@@ -387,7 +412,8 @@ def cmd_describe(a):
     if s["settled"]:
         parts.append(settled_block(s))
     items = [it for it in s["items"].values() if local(it)]
-    rej = sorted((it for it in items if it["status"] == "rejected"), key=lambda it: int(it["rid"][1:]))
+    rej = sorted((it for it in items if it["status"] == "rejected" and not superseded(it)),
+                 key=lambda it: int(it["rid"][1:]))
     if rej:
         parts.append(f"### {REJECTED}\n" + "\n".join(
             f"- {it['rid']} · " + (f"`{where(it)}` · " if it["file"] else "") + it["claim"]
