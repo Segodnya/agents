@@ -41,7 +41,7 @@ Write your result with `Write` to `RS_DIR/axis-X.json`, then answer with one lin
     "evidence": {"quote": "…", "entry": "…", "locations": ["a.ts:40", "a.ts:58"], "repro": "…"}
   }],
   "design_notes": [{"question": "…", "locations": ["a.ts:12"]}],
-  "rules_read": ["B only: every path you read from rule-files.txt and rules.md"],
+  "rules_read": ["B only: every path you read from rule-files.txt and rules.md, copied verbatim, one per entry"],
   "dropped": {"refuted": 0, "unproven": 0}
 }
 ```

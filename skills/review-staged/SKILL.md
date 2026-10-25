@@ -15,7 +15,7 @@ description: "Review of a git diff in one of four modes (staged / last commit / 
 5 REPORT    chat + RS_DIR/review-<repo>-<iid|mode>.md
 ```
 
-Invocation: `review-staged [staged|last|branch|worktree] [--no-mr] [--no-spec] [--base <branch>] [--mr <url>] [--checklist <file>] [--rs-dir <path>] [--checks <file>] [--threads <file>]`. Value flags answer step-1 questions up front.
+Invocation: `review-staged [staged|last|branch|worktree] [--no-mr] [--no-spec] [--base <branch>] [--mr <url>] [--checklist <file>] [--rs-dir <path>] [--checks <file>] [--threads <file>] [--design <dir>]`. Value flags answer step-1 questions up front.
 
 `SKILL_DIR` — the path from the harness line `Base directory for this skill:`. Shell state doesn't survive between `Bash` calls: substitute `RS_DIR` and `SKILL_DIR` as literals in every command.
 
@@ -53,6 +53,8 @@ stderr `matched <k> of <n>` goes into the report header verbatim.
 
 **Checklist** — `--checklist <file>` → `cp` to `RS_DIR/checklist.md`; else the user pastes it and you save it verbatim; `--no-spec` → none. Reviewers read the file; a checklist retold in your words is how a reviewer ends up quoting a rule nobody wrote.
 
+**Design** — `--design <dir>`: mockup screenshots the caller saved, `*.png` named by Figma node. Only D gets the path.
+
 **Checks** — `--checks <file>` → `python3 "SKILL_DIR/../mr-ready/scripts/run_checks.py" <file> RS_DIR`; else the repo's own typecheck / lint / tests, as binaries. Red is a finding for the header, not a failure. Pass the results to reviewers as one line, so they don't rerun them.
 
 ## 2. Review
@@ -69,7 +71,7 @@ B also gets the literal paths `RS_DIR/rules.md` and `RS_DIR/rule-files.txt`. Thr
 
 **C · Performance** — each P0/P1 names the delta (`O(n·m) → O(n+m)`, `+1 request → reuse`): nested lookups, work in loops, sequential awaits, redundant requests, work repeated per call / render / event that its inputs don't require.
 
-**D · Spec** — checklist vs diff, three ways: promised but absent (P0 if «fixed», P1 if «touched»); promised but contradicted — the diff does otherwise than the item says (priority as absent: a defect in the code, not a checklist edit); in the diff but not promised — a behaviour change or a runtime step (restart, migration, cache purge) the tester won't know to check (P1). Done when every visible change in the diff (class, token, size, colour, text, markup element) and every runtime step maps to a checklist item or to one finding — one exhaustive pass, so the next round finds nothing new. An absence is quoted at the place it should be.
+**D · Spec** — checklist vs diff, three ways: promised but absent (P0 if «fixed», P1 if «touched»); promised but contradicted — the diff does otherwise than the item says (priority as absent: a defect in the code, not a checklist edit); in the diff but not promised — a behaviour change or a runtime step (restart, migration, cache purge) the tester won't know to check (P1). Done when every visible change in the diff (class, token, size, colour, text, markup element) and every runtime step maps to a checklist item or to one finding — one exhaustive pass, so the next round finds nothing new. An absence is quoted at the place it should be. With `--design`: `Read` every screenshot; each element the diff renders (control type, icon, colour, size, state) that differs from the mockup is a P1 finding quoted at the code line, the screenshot named in the claim.
 
 After the spawn message **end your turn with one plain line `жду оси: A B C D`** (this line overrides any rule against status-only turns) — not `SubagentHandback`, which would end your run with no report. Each reviewer's report wakes you: run the gate; exit 2 (`waiting_for`) → end the turn with `жду оси: <missing>`, nothing else.
 
@@ -90,7 +92,7 @@ python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" RS_DIR/threads.json  
 python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" RS_DIR/threads.json 3 7 12   # bodies
 ```
 
-Match by file + line ±10 or by the same claim. A thread whose answer really closes the finding → `✅ снято тредом T<n>` with the author's quote and one line why. An answer that doesn't cover the case — including a «поправил» whose fix left this line as it was — keeps the finding, with one line why. A design note that any thread already argued is dropped. `🤖 self-review ·` roots are earlier mr-ready findings: judge them as a reviewer's threads. Each `S<n> · …` line under `### Settled` in `description` of `threads.json` is a thread with the author's answer and no position: a finding or design note it covers by claim → `✅ снято тредом S<n>` with the line quoted.
+Match by file + line ±10 or by the same claim. A thread whose answer really closes the finding → `✅ снято тредом T<n>` with the author's quote and one line why. An answer that doesn't cover the case — including a «поправил» whose fix left this line as it was — keeps the finding, with one line why. A design note that any thread already argued is dropped. `🤖 self-review ·` roots are earlier mr-ready findings: judge them as a reviewer's threads. A thread answered «Поправил в r<n>: …» is a fix already made: a P2 finding or design note that takes it back (restores what the fix removed, removes what it added, rewords the same comment again) → `↩︎ отменяет правку T<n>` with the fix quoted, counted like `✅ снято`; a P0/P1 the fix introduced stays open as `регрессия правки T<n>`. Each `S<n> · …` line under `### Settled` in `description` of `threads.json` is a thread with the author's answer and no position: a finding or design note it covers by claim → `✅ снято тредом S<n>` with the line quoted.
 
 ## 5. Report
 

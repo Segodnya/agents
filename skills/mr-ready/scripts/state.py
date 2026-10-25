@@ -8,7 +8,7 @@
     state.py fold     --mr-dir MR_DIR --round r --replies AR_DIR/replies.json [--discuss AR_DIR/discuss.md]
     state.py park     --mr-dir MR_DIR --id L3 --question "…"           # product fork → the final question
     state.py decide   --mr-dir MR_DIR --id L3 --choice fix|reply|defer [--text "…"]
-    state.py mark     --mr-dir MR_DIR --id L3 --cat cap|stuck
+    state.py mark     --mr-dir MR_DIR --id L3 --cat cap|stuck|minor
     state.py settle   --mr-dir MR_DIR --text "решение · почему" [--replace S2 | --drop S2]
     state.py threads  --mr-dir MR_DIR --for review|fix --out FILE      # fetch_mr.py shape for review-staged / audit-reply --threads
     state.py describe --mr-dir MR_DIR --summary-file F --out FILE      # the block for mr_post.py describe
@@ -16,8 +16,9 @@
     state.py show     --mr-dir MR_DIR                                  # compact listing for the orchestrator
 
 An item is `L<n>` (origin local: a gate.json #n / TKn / Dn or a --claim) or a GitLab discussion_id (origin gitlab:
-a thread imported at Ground — people's and earlier `🤖 self-review`). Fixed L-items stay as a log the reviewer never sees.
-Prints one JSON line per call.
+a thread imported at Ground — people's and earlier `🤖 self-review`). A fixed L-item reaches the reviewer as a thread
+with the fixer's «Поправил»: a new finding that would undo that fix is then visible as one.
+Prints one JSON line per call; add and fold also print `counts`.
 """
 
 import argparse
@@ -36,9 +37,12 @@ MARK_CLOSE = "<!-- /mr-ready -->"
 # render() puts a quoted rule as a `(… «…»)` line; a REPLY against it is the user's call
 RULE_LINE = re.compile(r"^\(.*«.+»\)$", re.M)
 SECTION = re.compile(r"^### (.+)$", re.M)
+# rounds in a row whose findings are all P2 / design notes: the loop has reached polish, the rest is the human's
+MINOR_STREAK = 3
 # held-for-the-reviewer categories: an open L-item with one of these gets a thread at handoff
 HANDOFF_CATS = {"stuck": "две правки не закрыли", "reverted": "правка откачена",
-                "cap": "не дошли: лимит раундов", "deferred": "отложено до ревьюера"}
+                "cap": "не дошли: лимит раундов", "deferred": "отложено до ревьюера",
+                "minor": f"{MINOR_STREAK} раунда подряд без P0/P1"}
 REJECTED = "Отклонено self-review"
 
 
@@ -218,8 +222,13 @@ def gate_entry(g, gid, top):
     return {"kind": {"TK": "ticket", "D": "note"}.get(re.match(r"[A-Z]*", gid.lstrip("#")).group(), "finding"),
             "claim": f.get("claim") or f.get("question") or "", "file": file or None, "line": line,
             "anchor": anchor_of(file, line, ev.get("quote")),
-            "locations": locs, "repro": ev.get("repro"),
+            "locations": locs, "repro": ev.get("repro"), "severity": f.get("severity"),
             "rule_source": rule, "rule": bool(rule and rule != "universal")}
+
+
+def mark_serious(s, rnd):
+    """The round brought a P0/P1 or a red check: the minor streak restarts after it."""
+    s["last_serious"] = max(s.get("last_serious", 0), rnd)
 
 
 def cmd_add(a):
@@ -228,14 +237,17 @@ def cmd_add(a):
     s["round"] = max(s["round"], a.round)
     if a.claim:
         out["added"].append(new_local(s, claim=a.claim))
+        mark_serious(s, a.round)
         save(a.mr_dir, s)
-        return out
+        return {**out, "counts": counts(s)}
     with open(a.gate, encoding="utf-8") as fh:
         g = json.load(fh)
     top = git("rev-parse", "--show-toplevel").stdout.strip()
     for spec in a.id:
         gid, _, target = spec.partition("=")
         f = gate_entry(g, gid, top)
+        if f["severity"] in ("P0", "P1"):
+            mark_serious(s, a.round)
         if not target:
             lid = new_local(s, **f)
             it = s["items"][lid]
@@ -258,7 +270,7 @@ def cmd_add(a):
         it.update(f, status="open", cat="stuck" if stuck else None)
         out["stuck" if stuck else "reopened"].append(key)
     save(a.mr_dir, s)
-    return out
+    return {**out, "counts": counts(s)}
 
 
 def park(it, question):
@@ -273,20 +285,24 @@ def cmd_fold(a):
     if os.path.exists(a.replies) and os.path.getsize(a.replies):
         with open(a.replies, encoding="utf-8") as fh:
             replies = json.load(fh)
-    out = {"ok": True, "unknown": []}
+    out = {"ok": True, "unknown": [], "unanswered": []}
     now = time.time()
+    # what threads --for fix handed the fixer: each must come back as a reply or a discuss line
+    handed = [k for k, it in s["items"].items() if actionable(it)]
+    answered = set()
     for rep in replies:
         key, kind, body = resolve(s, rep["discussion_id"]), rep["kind"], rep["body"]
         if key is None:
             out["unknown"].append(rep["discussion_id"])
             continue
+        answered.add(key)
         it = s["items"][key]
         if kind == "REPLY" and it["rule"] and not it.get("decision"):
             park(it, f"REPLY против правила: {body}")
         elif not local(it):
             it.update(status="queued", reply={"kind": kind, "body": body, "at": now}, decision=None)
         elif kind == "FIX":
-            it.update(status="fixed", cat=None, decision=None)
+            it.update(status="fixed", cat=None, decision=None, fix=body, fixed_in=a.round)
             it["fixes"] += 1
             it["commits"] += re.findall(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b", body)
         elif kind == "REVERTED":
@@ -296,15 +312,23 @@ def cmd_fold(a):
     if a.discuss and os.path.exists(a.discuss):
         with open(a.discuss, encoding="utf-8") as fh:
             for line in fh:
-                m = re.match(r"^- T\d+ · (\S+) · (.+)$", line.strip())
-                key = m and resolve(s, m.group(1))
-                if key:
-                    park(s["items"][key], m.group(2))
-                elif m:
-                    out["unknown"].append(m.group(1))
+                line = line.strip()
+                if not line.startswith("- "):
+                    continue
+                # one line may carry several threads: `- T4 · L31 · … (+ T5 · L32 · …)`
+                ids = re.findall(r"\bT\d+ · (\S+) · ", line)
+                question = re.sub(r"^- T\d+ · \S+ · ", "", line)
+                for tid in ids:
+                    key = resolve(s, tid)
+                    if key:
+                        park(s["items"][key], question)
+                        answered.add(key)
+                    else:
+                        out["unknown"].append(tid)
+    out["unanswered"] = [k for k in handed if k not in answered]
     s["head"], s["round"] = head(), max(s["round"], a.round)
     save(a.mr_dir, s)
-    return out
+    return {**out, "counts": counts(s)}
 
 
 def cmd_park(a):
@@ -372,7 +396,9 @@ def render(it):
 
 def as_thread(key, it, author):
     if local(it):
-        answer = {"rejected": it["reason"] or "Отклонено.", "ticket": "Вне скоупа: черновик тикета."}.get(it["status"])
+        answer = {"rejected": it["reason"] or "Отклонено.", "ticket": "Вне скоупа: черновик тикета.",
+                  "fixed": f"Поправил в r{it.get('fixed_in', '?')}: {it.get('fix') or ', '.join(it['commits'])}"
+                  }.get(it["status"])
         reply = [{"author": author, "body": answer, "created_at": ""}] if answer else []
         return {"discussion_id": key, "note_id": None, "resolved": False, "author": author, "is_author_self": True,
                 "last_by_author": bool(answer), "created_at": "", "body": render(it), "file": it["file"],
@@ -388,7 +414,7 @@ def as_thread(key, it, author):
 def cmd_threads(a):
     s = load(a.mr_dir)
     author = s["mr"]["author"]
-    keep = actionable if a.for_ == "fix" else (lambda it: it["status"] not in ("fixed", "posted"))
+    keep = actionable if a.for_ == "fix" else (lambda it: it["status"] != "posted")
     out = [as_thread(k, it, author) for k, it in s["items"].items() if keep(it)]
     desc = s["mr"]["description"]
     if s["settled"]:
@@ -402,7 +428,8 @@ def cmd_threads(a):
 def counts(s):
     items = s["items"].values()
     return {"round": s["round"], "open": sum(map(actionable, items)),
-            "forks": sum(it["status"] == "parked" for it in items)}
+            "forks": sum(it["status"] == "parked" for it in items),
+            "minor": s["round"] - s.get("last_serious", 0) >= MINOR_STREAK}
 
 
 def cmd_describe(a):
@@ -465,7 +492,7 @@ def main():
     cmd("fold", ("--round", {**req, "type": int}), ("--replies", req), ("--discuss", {}))
     cmd("park", ("--id", req), ("--question", req))
     cmd("decide", ("--id", req), ("--choice", {**req, "choices": ["fix", "reply", "defer"]}), ("--text", {}))
-    cmd("mark", ("--id", req), ("--cat", {**req, "choices": ["cap", "stuck"]}))
+    cmd("mark", ("--id", req), ("--cat", {**req, "choices": ["cap", "stuck", "minor"]}))
     cmd("settle", ("--text", {}), ("--replace", {}), ("--drop", {}))
     cmd("threads", ("--for", {**req, "dest": "for_", "choices": ["review", "fix"]}), ("--out", req))
     cmd("describe", ("--summary-file", req), ("--out", req))

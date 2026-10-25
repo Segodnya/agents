@@ -187,7 +187,11 @@ def main():
         d["id"] = f"D{n}"
 
     expected = [f.strip() for f in (read(f"{rs}/rule-files.txt") or "").splitlines() if f.strip()]
-    rules_missing = [f for f in expected if "B" in rules_read and f not in rules_read["B"]]
+    # the reviewer writes paths absolute and may append a note after one: compare resolved paths
+    def norm(f):
+        return os.path.realpath(os.path.expanduser(f.split(" (")[0].strip()))
+    read_b = {norm(f) for f in rules_read.get("B") or []}
+    rules_missing = [f for f in expected if norm(f) not in read_b] if "B" in rules_read else []
 
     discarded = sum(tally.values())
     total = len(cands) + tally["refuted"] + tally["unproven"] + tally["unparseable"]

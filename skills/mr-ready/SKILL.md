@@ -14,11 +14,11 @@ trigger: /mr-ready
 не ревьюишь и не правишь сам: независимость ревьюера от автора правки — весь смысл цикла.
 
 ```
-0 GROUND   MR · стейт (единственное чтение MR) · база · контракт · проверки · среда → один вопрос
+0 GROUND   MR · стейт (единственное чтение MR) · база · контракт · макет · проверки · среда → один вопрос
 ─ раунд r (до 10 за запуск, только локально) ─
 1 REVIEW   state.py threads → Agent → Skill segodnya-agents:review-staged --threads
 2 TRIAGE   находки → state.py add
-3 EXIT?    ready · только развилки · stuck · cap
+3 EXIT?    ready · только развилки · stuck · minor · cap
 4 FIX      state.py threads → Agent → Skill segodnya-agents:audit-reply --threads → state.py fold
 ─────────
 5 ASK      развилки + Jira → один AskUserQuestion · «Править» → шаг 4
@@ -74,6 +74,12 @@ trigger: /mr-ready
    - ТЗ — ключ Jira из имени ветки или заголовка MR → `jira issue view <KEY> --plain > MR_DIR/spec.md`. Ключа нет → без ТЗ.
    - Settled — уже в стейте из описания; плюс `--settled` или ссылка в `/goal` (читаешь как чек-лист) и
      решения этой сессии → `state.py settle --mr-dir MR_DIR --text "решение · почему"`. Противоречие → в вопрос.
+   - Макет — ссылки Figma из вызова, `/goal` или ТЗ; ссылок нет → без макета. Скриншоты — в
+     `MR_DIR/design/<node>.png`; файл уже есть (продолжение) — оставляешь. Снимаешь сам, один раз: `get_screenshot`
+     по узлу, PNG через `curl` из ответа. Узел-страница (`original_width` > 2000) мельчит элементы: узлы
+     компонентов из неё — `get_design_context` по странице; не вышло → в вопрос: ссылки на узлы компонентов.
+     Готово, когда на каждый компонент и состояние, которое рисует дифф (выбран / не выбран / недоступен,
+     скелетон, мобайл / десктоп), есть PNG, где элемент читается.
 5. **Проверки** → `MR_DIR/checks.txt`, команда на строку: typecheck, lint по файлам диффа, тесты по
    затронутой области — бинарями репо, плюс то, что требуют `CLAUDE.md` / `.claude/rules` проекта.
    Формат строки — docstring `scripts/run_checks.py`; файлы диффа — плейсхолдером
@@ -97,12 +103,12 @@ trigger: /mr-ready
 Промпт ревьюера:
 
 > Вызови `Skill segodnya-agents:review-staged` с аргументами `branch --base <target> --mr <url> --threads MR_DIR/threads-r<r>.json --checklist MR_DIR/checklist.md`
-> (или `--no-spec`) `--rs-dir MR_DIR/rs-r<r> --checks MR_DIR/checks.txt`. Процедуру скилла — целиком, с
+> (или `--no-spec`) `--rs-dir MR_DIR/rs-r<r> --checks MR_DIR/checks.txt` `--design MR_DIR/design` (если есть). Процедуру скилла — целиком, с
 > четырьмя осями и гейтом. Вопросов не задавай — `MISSING: <что>`. Язык находок: <язык MR>. Среда: <строка>.
 > Автор может коммитить параллельно, это не аномалия.
 > <есть `MR_DIR/head-r<r-1>.txt`:> В дополнение к полному ревью: прошлый раунд правил коммиты `<head-r<r-1>>..HEAD`;
 > по каждой функции, которую они тронули, проверь каждый вид входа, не только исправленный.
-> Ответь только: путь отчёта; по строке на каждую открытую запись `gate.json` (не `✅ снято тредом`) —
+> Ответь только: путь отчёта; по строке на каждую открытую запись `gate.json` (не `✅ снято тредом` и не `↩︎ отменяет правку`) —
 > `<#n|TKn|Dn> · file:line · P? · суть`, с меткой `· чек-лист` для находки оси D «в диффе, не обещано»; `open: <число>`.
 
 Приёмка: нет `MR_DIR/rs-r<r>/gate.json` → один `SendMessage` тому же ревьюеру.
@@ -122,7 +128,7 @@ trigger: /mr-ready
 
 ## 3. Exit?
 
-Счётчики — `state.py show --mr-dir MR_DIR` → `counts`.
+Счётчики — `counts` из ответа `state.py add` (или `show`).
 
 - **`open` = 0** → `forks` > 0 → шаг 5. Иначе проверки: `MR_DIR/rs-r<r>/head.txt` совпадает с HEAD — итог
   из `_Checks:_` отчёта ревью, иначе сам `python3 "SKILL_DIR/scripts/run_checks.py" MR_DIR/checks.txt MR_DIR`
@@ -130,6 +136,8 @@ trigger: /mr-ready
 - **stuck** → набор находок раунда совпал с прошлым, а коммитов в r-1 не было: каждую открытую
   `state.py mark --mr-dir MR_DIR --id L<k> --cat stuck`. Одна `stuck` находка цикл не останавливает: она
   уходит ревьюеру, остальные правятся.
+- **minor** → `counts.minor` (несколько раундов подряд без P0/P1 и красных проверок): открытые —
+  `state.py mark … --cat minor` без fix.
 - **cap** → `r = r0 + 9`: открытые — `state.py mark … --cat cap` без fix.
 
 После `mark` открытых не остаётся — дальше как при `open` = 0.
@@ -145,6 +153,7 @@ trigger: /mr-ready
 > --threads MR_DIR/threads-fix-r<r>.json --checks MR_DIR/checks.txt` `--checklist MR_DIR/checklist.md` `--spec MR_DIR/spec.md` (если есть).
 > Вопросов не задавай — `MISSING: <что>`.
 > `discuss.md` — на языке: <язык пользователя>. Среда: <строка>. Не пушь и не пости.
+> <есть `MR_DIR/design`:> Макет — скриншоты в `MR_DIR/design`; правка вида сверяется с ними.
 > <в `show` есть `решение: FIX`:> Треды <id…>: решение пользователя — FIX, <его указание дословно>; триггеры DISCUSS к ним не применяй.
 > Ответь только: коммиты (`hash · file:line · суть`), откаты (`file:line · причина`), правки чек-листа
 > (`п.<n> · было → стало`), пути `replies.json` и `discuss.md`; указания пользователя, пришедшие по ходу, — дословно.
@@ -152,7 +161,8 @@ trigger: /mr-ready
 Итог раунда — из файлов, не из текста ответа:
 `state.py fold --mr-dir MR_DIR --round <r> --replies MR_DIR/ar-r<r>/replies.json --discuss MR_DIR/ar-r<r>/discuss.md`.
 `unknown` непуст → сверь id с `show`, развилку без строки в `discuss.md` ставишь сам:
-`state.py park --id <id> --question "…"`. Коммиты — `git log <head-r<r>>..HEAD`.
+`state.py park --id <id> --question "…"`. `unanswered` непуст — fixer пропустил треды: один `SendMessage` ему
+с этими id, затем `fold` снова; опять пропуск → `park` с вопросом из ответа fixer'а. Коммиты — `git log <head-r<r>>..HEAD`.
 `round: r+1` → шаг 1.
 
 ## 5. Ask
@@ -183,7 +193,7 @@ trigger: /mr-ready
    `run_in_background`, лог в `MR_DIR` (pre-push хук идёт минуты). Итог — `git fetch origin <source_branch>`
    и сравнение с HEAD. Отказ → стоп, `blocked`, историю не чинить, шаг 6.3 не делаешь.
 3. **Публикация** — `python3 "SKILL_DIR/scripts/mr_post.py" publish --url "<url>" --mr-dir MR_DIR`: ответы
-   из очереди в треды MR, треды для `L<n>` категорий stuck, reverted, cap, deferred. `skipped` — в треде
+   из очереди в треды MR, треды для `L<n>` категорий stuck, reverted, minor, cap, deferred. `skipped` — в треде
    новая реплика человека: подхватит следующий запуск. `failed` → проверь факт сам, затем `mr_post.py reply --discussion <id> --body-file …` или в отчёт «не запощено».
 4. **Описание** — Summary в `MR_DIR/summary.md`: 1–2 предложения, что меняет MR (для рефакторинга — что
    устроено иначе), без путей и счётчиков, по `git log --oneline origin/<target>..HEAD` и
@@ -196,11 +206,11 @@ Stop-хук отверг стоп-статус → `AskUserQuestion` «Прод�
 Отчёт в чат на языке пользователя; не `ready` → первой строкой причина и что решить человеку:
 
 ```markdown
-# mr-ready — MR !<iid> · <ready | stuck | cap | blocked>
+# mr-ready — MR !<iid> · <ready | stuck | minor | cap | blocked>
 Раундов: <r> · коммитов: <c> · push: <да | нет> · тредов: <t> · ответов: <k> · не запощено: <u>
 
 ## Открыто для ревьюера
-- `file:line` — суть · <stuck / откатил: причина / cap / отложено>
+- `file:line` — суть · <stuck / откатил: причина / minor / cap / отложено>
 ## Черновики тикетов
 ## Чек-лист
 - п.<n>: было «…» → стало «…» (Jira: обновлено | не обновлено)
