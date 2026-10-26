@@ -186,42 +186,89 @@ def plan_patch(adf, old_md, new_md):
     for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old_items, new_items, autojunk=False).get_opcodes():
         if op == "equal":
             continue
-        if op == "delete" or (op == "replace" and i2 - i1 != j2 - j1):
+        if op == "delete" or (op == "replace" and i2 - i1 > j2 - j1):
             die(f"ambiguous change at old items {i1 + 1}-{i2} (deletion or unequal replace) — edit by hand")
-        if op == "replace":
-            for r, (d, text) in zip(recs[i1:i2], new_items[j1:j2]):
-                if d != r["depth"]:
-                    die(f"item depth changed: {text[:60]!r}")
-                if any(c["type"] != "text" for c in r["p"].get("content", [])):
-                    die(f"item has non-text nodes (hardBreak/card), edit by hand: {para(r['p'])[:60]!r}")
-                if any(m["type"] in DECOR for c in r["p"]["content"] for m in c.get("marks", [])):
-                    die(f"item is decorated, a rewrite would drop the decoration — edit by hand: {para(r['p'])[:60]!r}")
-                r["p"]["content"] = inline_nodes(text)
+        # an edit with items inserted next to it arrives as one replace with more new items than old
+        if op == "insert":
+            pairs = []
+        elif i2 - i1 == j2 - j1:
+            pairs = [(k, k) for k in range(i2 - i1)]
+        else:
+            pairs = align(old_items[i1:i2], new_items[j1:j2])
+        if pairs is None:
+            die(f"ambiguous change at old items {i1 + 1}-{i2} (unequal replace, no clear edit) — edit by hand")
+        edited = dict(pairs)
+        if i1 == 0 and 0 not in edited.values():
+            die("insert before the first item is ambiguous")
+        prev = recs[i1 - 1] if i1 else None
+        for j, (d, text) in enumerate(new_items[j1:j2]):
+            if j in edited.values():
+                r = recs[i1 + next(i for i, jj in edited.items() if jj == j)]
+                edit_item(r, d, text)
                 plan.append(f"edit   {'  ' * d}{text[:100]}")
-        else:  # insert
-            if i1 == 0:
-                die("insert before the first item is ambiguous")
-            prev = recs[i1 - 1]
-            for d, text in new_items[j1:j2]:
-                li = {"type": "listItem", "content": [{"type": "paragraph", "content": inline_nodes(text)}]}
-                if d == prev["depth"] + 1:
-                    nested = [c for c in prev["li"]["content"][1:] if c["type"] in LISTS]
-                    if not nested:
-                        die(f"no nested list under the previous item for: {text[:60]!r}")
-                    parent, rec_up = nested[-1], prev
-                    pos = len(parent["content"])
-                elif d <= prev["depth"]:
-                    anchor = prev
-                    while anchor["depth"] > d:
-                        anchor = anchor["up"]
-                    parent, rec_up = anchor["parent"], anchor["up"]
-                    pos = next(k for k, c in enumerate(parent["content"]) if c is anchor["li"]) + 1
-                else:
-                    die(f"item depth jumps by more than one: {text[:60]!r}")
-                parent["content"].insert(pos, li)
-                prev = {"depth": d, "li": li, "parent": parent, "up": rec_up, "p": li["content"][0]}
+                prev = r
+            else:
+                prev = insert_after(prev, d, text)
                 plan.append(f"insert {'  ' * d}{text[:100]}")
     return plan, adf
+
+
+def align(old, new):
+    """Monotonic pairing of every old item with the new item that keeps most of its text → [(old_idx, new_idx)].
+    None when a pair keeps too little to call it the same item edited."""
+    sim = [[0.0 if o[0] != n[0] else kept(o[1], n[1]) for n in new] for o in old]
+    # best[i][j]: best score pairing old[:i] within new[:j]
+    best = [[0.0] * (len(new) + 1) for _ in range(len(old) + 1)]
+    for i in range(1, len(old) + 1):
+        best[i][i - 1] = float("-inf")
+        for j in range(i, len(new) + 1):
+            best[i][j] = max(best[i][j - 1], best[i - 1][j - 1] + sim[i - 1][j - 1])
+    pairs, j = [], len(new)
+    for i in range(len(old), 0, -1):
+        while best[i][j] == best[i][j - 1] and j > i:
+            j -= 1
+        pairs.append((i - 1, j - 1))
+        j -= 1
+    pairs.reverse()
+    # below this an «edit» is a rewrite: the reader of the plan would not recognise the item
+    return pairs if all(sim[i][j] >= 0.5 for i, j in pairs) else None
+
+
+def kept(old, new):
+    """Share of `old` that survives in `new`: an edit that appends a long tail still scores high, unlike ratio()."""
+    blocks = difflib.SequenceMatcher(None, old, new, autojunk=False).get_matching_blocks()
+    return sum(b.size for b in blocks) / max(len(old), 1)
+
+
+def edit_item(r, d, text):
+    if d != r["depth"]:
+        die(f"item depth changed: {text[:60]!r}")
+    if any(c["type"] != "text" for c in r["p"].get("content", [])):
+        die(f"item has non-text nodes (hardBreak/card), edit by hand: {para(r['p'])[:60]!r}")
+    if any(m["type"] in DECOR for c in r["p"]["content"] for m in c.get("marks", [])):
+        die(f"item is decorated, a rewrite would drop the decoration — edit by hand: {para(r['p'])[:60]!r}")
+    r["p"]["content"] = inline_nodes(text)
+
+
+def insert_after(prev, d, text):
+    """New listItem right after `prev` (nested under it when one level deeper) → its record."""
+    li = {"type": "listItem", "content": [{"type": "paragraph", "content": inline_nodes(text)}]}
+    if d == prev["depth"] + 1:
+        nested = [c for c in prev["li"]["content"][1:] if c["type"] in LISTS]
+        if not nested:
+            die(f"no nested list under the previous item for: {text[:60]!r}")
+        # `prev` is an existing item: its own children follow it in the document, so the new child goes first
+        parent, rec_up, pos = nested[0], prev, 0
+    elif d <= prev["depth"]:
+        anchor = prev
+        while anchor["depth"] > d:
+            anchor = anchor["up"]
+        parent, rec_up = anchor["parent"], anchor["up"]
+        pos = next(k for k, c in enumerate(parent["content"]) if c is anchor["li"]) + 1
+    else:
+        die(f"item depth jumps by more than one: {text[:60]!r}")
+    parent["content"].insert(pos, li)
+    return {"depth": d, "li": li, "parent": parent, "up": rec_up, "p": li["content"][0]}
 
 
 def strip_ids(n):

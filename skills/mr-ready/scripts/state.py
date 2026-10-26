@@ -44,6 +44,8 @@ HANDOFF_CATS = {"stuck": "две правки не закрыли", "reverted": 
                 "cap": "не дошли: лимит раундов", "deferred": "отложено до ревьюера",
                 "minor": f"{MINOR_STREAK} раунда подряд без P0/P1"}
 REJECTED = "Отклонено self-review"
+# answer on a parked item's thread: review-staged closes a repeat of the claim against it
+PENDING = "Ждёт решения человека"
 
 
 def git(*args, check=True):
@@ -395,18 +397,20 @@ def render(it):
 
 
 def as_thread(key, it, author):
+    pending = f"{PENDING}: {it['question']}" if it["status"] == "parked" else None
     if local(it):
         answer = {"rejected": it["reason"] or "Отклонено.", "ticket": "Вне скоупа: черновик тикета.",
-                  "fixed": f"Поправил в r{it.get('fixed_in', '?')}: {it.get('fix') or ', '.join(it['commits'])}"
-                  }.get(it["status"])
+                  "fixed": f"Поправил в r{it.get('fixed_in', '?')}: {it.get('fix') or ', '.join(it['commits'])}",
+                  "parked": pending}.get(it["status"])
         reply = [{"author": author, "body": answer, "created_at": ""}] if answer else []
         return {"discussion_id": key, "note_id": None, "resolved": False, "author": author, "is_author_self": True,
                 "last_by_author": bool(answer), "created_at": "", "body": render(it), "file": it["file"],
                 "new_line": it["line"], "old_line": None, "is_general": not it["file"], "reply_count": len(reply),
                 "replies": reply}
     t = dict(it["thread"])
-    if it["status"] == "queued":
-        t["replies"] = t["replies"] + [{"author": author, "body": it["reply"]["body"], "created_at": ""}]
+    body = it["reply"]["body"] if it["status"] == "queued" else pending
+    if body:
+        t["replies"] = t["replies"] + [{"author": author, "body": body, "created_at": ""}]
         t["reply_count"], t["last_by_author"] = len(t["replies"]), True
     return t
 

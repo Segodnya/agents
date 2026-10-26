@@ -12,11 +12,12 @@ DIFF_TOKEN = re.compile(r"^\{diff:(?P<ref>[^:}]+):(?P<exts>[^}]+)\}$")
 
 
 def diff_files(ref, exts):
-    """Files present at HEAD that changed since the merge-base with `ref`, by extension."""
+    """Files present at HEAD and on disk that changed since the merge-base with `ref`, by extension."""
     out = subprocess.run(["git", "diff", "--name-only", "--diff-filter=d", f"{ref}...HEAD"],
                          capture_output=True, text=True, check=True).stdout.split()
     suffixes = tuple("." + e.strip().lstrip(".") for e in exts.split(","))
-    return [f for f in out if f.endswith(suffixes)]
+    # a fixer runs checks before committing a move: HEAD still lists the old path, the disk no longer has it
+    return [f for f in out if f.endswith(suffixes) and os.path.exists(f)]
 
 
 def run(cmd, timeout, stdout=None):
