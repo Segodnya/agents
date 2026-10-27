@@ -11,6 +11,7 @@
     state.py mark     --mr-dir MR_DIR --id L3 --cat cap|stuck|minor
     state.py settle   --mr-dir MR_DIR --text "решение · почему" [--replace S2 | --drop S2]
     state.py threads  --mr-dir MR_DIR --for review|fix --out FILE      # fetch_mr.py shape for review-staged / audit-reply --threads
+                                                                       # --for review also prints `since`: HEAD before the last fix round
     state.py describe --mr-dir MR_DIR --summary-file F --out FILE      # the block for mr_post.py describe
                                                                        # rejected items whose code is gone at HEAD are left out
     state.py show     --mr-dir MR_DIR                                  # compact listing for the orchestrator
@@ -426,7 +427,21 @@ def cmd_threads(a):
     data = {**s["mr"], "description": desc, "open_thread_count": sum(not t["resolved"] for t in out), "threads": out}
     with open(a.out, "w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False, indent=1)
-    return {"ok": True, "threads": len(out)}
+    res = {"ok": True, "threads": len(out)}
+    if a.for_ == "review":
+        res["since"] = fixed_since(a.mr_dir, s["round"])
+    return res
+
+
+def fixed_since(mr_dir, rnd):
+    """HEAD before the last fix round, for the reviewer's `<since>..HEAD`; None when that round had no fix step.
+    Read here so the orchestrator copies a hash instead of recalling one."""
+    head = os.path.join(mr_dir, f"head-r{rnd}.txt")
+    if not os.path.exists(head):
+        return None
+    with open(head, encoding="utf-8") as fh:
+        sha = fh.read().strip()
+    return sha if git("rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}", check=False).returncode == 0 else None
 
 
 def counts(s):

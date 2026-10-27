@@ -104,14 +104,14 @@ trigger: /mr-ready
 
 ## 1. Review
 
-`python3 "SKILL_DIR/scripts/state.py" threads --mr-dir MR_DIR --for review --out MR_DIR/threads-r<r>.json`.
+`python3 "SKILL_DIR/scripts/state.py" threads --mr-dir MR_DIR --for review --out MR_DIR/threads-r<r>.json` → `since`.
 Промпт ревьюера:
 
 > Вызови `Skill segodnya-agents:review-staged` с аргументами `branch --base <target> --mr <url> --threads MR_DIR/threads-r<r>.json --checklist MR_DIR/checklist.md`
 > (или `--no-spec`) `--rs-dir MR_DIR/rs-r<r> --checks MR_DIR/checks.txt` `--design MR_DIR/design` (если есть). Процедуру скилла — целиком, с
 > четырьмя осями и гейтом. Вопросов не задавай — `MISSING: <что>`. Язык находок: <язык MR>. Среда: <строка>.
 > Автор может коммитить параллельно, это не аномалия.
-> <есть `MR_DIR/head-r<r-1>.txt`:> В дополнение к полному ревью: прошлый раунд правил коммиты `<head-r<r-1>>..HEAD`;
+> <`since` не null:> В дополнение к полному ревью: прошлый раунд правил коммиты `<since>..HEAD`;
 > по каждой функции, которую они тронули, проверь каждый вид входа, не только исправленный.
 > Ответь только: путь отчёта; по строке на каждую открытую запись `gate.json` (не `✅ снято тредом` и не `↩︎ отменяет правку`) —
 > `<#n|TKn|Dn> · file:line · P? · суть`, с меткой `· чек-лист` для находки оси D «в диффе, не обещано»; `open: <число>`.

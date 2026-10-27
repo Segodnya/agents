@@ -11,10 +11,16 @@ import subprocess
 DIFF_TOKEN = re.compile(r"^\{diff:(?P<ref>[^:}]+):(?P<exts>[^}]+)\}$")
 
 
+def git_names(*args):
+    return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout.split()
+
+
 def diff_files(ref, exts):
-    """Files present at HEAD and on disk that changed since the merge-base with `ref`, by extension."""
-    out = subprocess.run(["git", "diff", "--name-only", "--diff-filter=d", f"{ref}...HEAD"],
-                         capture_output=True, text=True, check=True).stdout.split()
+    """Files on disk that changed since the merge-base with `ref`, by extension: committed, uncommitted and untracked.
+    A fixer runs the checks before its commit, so a new file must be linted while still untracked."""
+    out = dict.fromkeys(git_names("diff", "--name-only", "--diff-filter=d", f"{ref}...HEAD")
+                        + git_names("diff", "--name-only", "--diff-filter=d", "HEAD")
+                        + git_names("ls-files", "--others", "--exclude-standard"))
     suffixes = tuple("." + e.strip().lstrip(".") for e in exts.split(","))
     # a fixer runs checks before committing a move: HEAD still lists the old path, the disk no longer has it
     return [f for f in out if f.endswith(suffixes) and os.path.exists(f)]
