@@ -107,10 +107,14 @@ def local(it):
 
 
 def actionable(it):
-    """Still the fixer's: open, not held for the reviewer, and for a MR thread — the last word isn't the author's."""
+    """Still the fixer's: open, not held for the reviewer, and for a MR thread — the last word isn't the author's
+    or the user decided FIX on it."""
     if it["status"] != "open" or it.get("cat"):
         return False
-    return local(it) or not (it["thread"]["resolved"] or it["thread"]["last_by_author"])
+    if local(it):
+        return True
+    # the user is often the MR author: their own «надо поправить» ends with their word too
+    return not it["thread"]["resolved"] and (it.get("decision") == "fix" or not it["thread"]["last_by_author"])
 
 
 def new_local(s, **fields):

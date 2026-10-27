@@ -79,7 +79,8 @@ trigger: /mr-ready
      решения этой сессии → `state.py settle --mr-dir MR_DIR --text "решение · почему"`. Противоречие → в вопрос.
    - Макет — ссылки Figma из вызова, `/goal` или ТЗ; ссылок нет → без макета. Скриншоты — в
      `MR_DIR/design/<node>.png`; файл уже есть (продолжение) — оставляешь. Снимаешь сам, один раз: `get_screenshot`
-     по узлу, PNG через `curl` из ответа. Узел-страница (`original_width` > 2000) мельчит элементы; узлы
+     по узлу, PNG по `image_url` из ответа: `curl -sL -o <node>.png -w '%{http_code}' <url>`. Пока картинка
+     рендерится, URL отдаёт `202` и пустое тело: повторяй раз в 5 с, пока `file` не скажет `PNG`, до 5 раз. Узел-страница (`original_width` > 2000) мельчит элементы; узлы
      компонентов ищешь по порядку: ссылки `node-id` в `spec.md` → `get_design_context` по странице →
      `get_metadata` по странице (сотни КБ: разбираешь скриптом из сохранённого файла, в контекст — только
      фреймы). Узлов так и нет → в вопрос: ссылки на узлы компонентов.
@@ -152,7 +153,7 @@ trigger: /mr-ready
 
 `git rev-parse HEAD > MR_DIR/head-r<r>.txt`;
 `state.py threads --mr-dir MR_DIR --for fix --out MR_DIR/threads-fix-r<r>.json` — только то, что fixer'у
-ещё править: открытые `L<n>` и треды MR, где последнее слово не за автором. Промпт fixer'а:
+ещё править: открытые `L<n>` и треды MR, где последнее слово не за автором или стоит `решение: FIX`. Промпт fixer'а:
 
 > Вызови `Skill segodnya-agents:audit-reply` с аргументами `<url> --auto --commit --base <target> --ar-dir MR_DIR/ar-r<r>
 > --threads MR_DIR/threads-fix-r<r>.json --checks MR_DIR/checks.txt` `--checklist MR_DIR/checklist.md` `--spec MR_DIR/spec.md` (если есть).
