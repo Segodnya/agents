@@ -11,7 +11,8 @@ meaning and render as plain text; any other node or mark → exit 1 naming its t
 `put` diffs list items of --old vs --new: changed item → its text nodes are rewritten, added item → a new
 listItem. Deleted items, changes outside list items, or anything ambiguous → exit 1, no guessing.
 Before the PUT the comment is re-read and must equal the ADF saved by `get`; after it, re-read and
-compared with what was sent. --dry-run prints the plan and writes nothing.
+compared with what was sent, and its renderedBody must show every list item. An item written with a
+`{word}` placeholder → exit 1 before the PUT. --dry-run prints the plan and writes nothing.
 
 Auth and transport: _lib/jira.py.
 """
@@ -31,6 +32,9 @@ LISTS = ("orderedList", "bulletList")
 # presentation only: a checklist item means the same with or without them
 DECOR = ("textColor", "backgroundColor", "underline")
 INLINE = re.compile(r"`([^`]+)`|\*\*(.+?)\*\*|\*(.+?)\*|\[([^\]]+)\]\(([^)]+)\)")
+# Jira builds renderedBody through wiki markup, where {word} is a macro: the list breaks from that item on.
+# A code mark does not escape it ({{…}} shows up literally)
+WIKI_MACRO = re.compile(r"\{[A-Za-z][\w:-]*\}")
 ITEM = re.compile(r"^(\s*)(\d+\.|-) (.*)$")
 
 
@@ -202,6 +206,9 @@ def plan_patch(adf, old_md, new_md):
             die("insert before the first item is ambiguous")
         prev = recs[i1 - 1] if i1 else None
         for j, (d, text) in enumerate(new_items[j1:j2]):
+            macro = WIKI_MACRO.search(text)
+            if macro:
+                die(f"{macro.group()} breaks Jira's wiki rendering — write it without braces (<date>): {text[:60]!r}")
             if j in edited.values():
                 r = recs[i1 + next(i for i, jj in edited.items() if jj == j)]
                 edit_item(r, d, text)
@@ -321,6 +328,12 @@ def main():
     back = call(a.key, a.comment)
     if strip_ids(back) != strip_ids(patched):
         die("PUT done, but the re-read comment differs from what was sent — check it in Jira")
+    # the ADF can be valid while the wiki-based render loses the list: a broken item turns the rest into text
+    rendered = request("GET", f"/rest/api/3/issue/{a.key}/comment/{a.comment}?expand=renderedBody")["renderedBody"]
+    items = sum(len(items_of(n)) for n in patched["content"] if n["type"] in LISTS)
+    shown = len(re.findall(r"<li[\s>]", rendered))
+    if shown != items:
+        die(f"PUT done, but renderedBody shows {shown} of {items} list items — the wiki render broke, fix the item text")
     print(json.dumps({"ok": True, "changes": len(plan)}))
 
 
