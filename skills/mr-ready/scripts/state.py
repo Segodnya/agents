@@ -87,7 +87,7 @@ def anchor_of(file, line, quote):
         return next((ln.strip() for ln in quote.splitlines() if ln.strip()), None)
     content = file_at_head(file) if file and line else None
     lines = content.splitlines() if content else []
-    return lines[line - 1].strip() or None if 0 < line <= len(lines) else None
+    return lines[line - 1].strip() or None if line and 0 < line <= len(lines) else None
 
 
 def superseded(it):
