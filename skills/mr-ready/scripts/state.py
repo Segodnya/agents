@@ -212,7 +212,9 @@ def cmd_init(a):
 def gate_entry(g, gid, top):
     f = next((x for x in g["findings"] + g["tickets"] + g["design_notes"] if x["id"] == gid), None)
     if f is None:
-        sys.exit(f"{gid} not in gate.json")
+        known = [f"{x['id']} {x.get('file') or ''}:{x.get('line') or ''}"
+                 for x in g["findings"] + g["tickets"] + g["design_notes"]]
+        sys.exit(f"{gid} not in gate.json; match the reviewer's line by file:line: " + ", ".join(known))
 
     def rel(p):
         return os.path.relpath(p, top) if p and os.path.isabs(p) else p
