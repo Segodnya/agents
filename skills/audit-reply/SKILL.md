@@ -157,7 +157,8 @@ REPLY с вариантом или DISCUSS. Комментарии и doc-бло
 **`--commit`**, проверки зелёные:
 1. Сообщение в стиле `git log --oneline -10`, в теле `file:line` треда → `AR_DIR/msg-<n>.txt`.
 2. Из корня репо: `python3 "SKILL_DIR/scripts/check_commit_msg.py" AR_DIR/msg-<n>.txt`.
-3. `git add <файлы правки>` + `git commit -F AR_DIR/msg-<n>.txt`.
+3. `git add <файлы правки>` + `git commit -F AR_DIR/msg-<n>.txt > AR_DIR/commit-<n>.log 2>&1`. Хук упал →
+   причина (имя теста, правило линтера) — из этого лога целиком, `grep -n 'FAIL\|✖\|error'` по нему.
 
 Красно (проверки или шаг 2) → одна попытка; снова красно → `git checkout -- <файлы>`, REVERTED
 «попробовал, откатил: <причина>». Без `push`, `--amend`, `rebase`.
