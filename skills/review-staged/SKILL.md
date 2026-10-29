@@ -59,7 +59,7 @@ stderr `matched <k> of <n>` goes into the report header verbatim.
 
 ## 2. Review
 
-Spawn four `Agent`s in one message (three under `--no-spec`), each `model: "sonnet"`. Prompt:
+Spawn four `Agent`s in one message (three under `--no-spec`), each `model: "sonnet"`, `effort: "medium"`. Prompt:
 
 > `RS_DIR = <literal>`. Axis `<X>`. First `cat "<SKILL_DIR>/prelude.md"` and follow it. Checklist: `RS_DIR/checklist.md` (omit under `--no-spec`). Checks already run: <cmd → exit; …>. Findings language: <the MR's / the user's>. <Среда line, if the caller gave one.> <Axis charter below.> <Caller's extra focus, if any — as an addition to the full axis, never instead of it.>
 

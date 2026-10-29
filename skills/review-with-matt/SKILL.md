@@ -27,7 +27,7 @@ python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" .tmp-review/threads.j
 
 ## 2. Review
 
-Запусти `/mattpocock-skills:code-review staged`. Спека — `.tmp-review/spec.md`; стандарты — путь из аргумента, если передан. Субагентов запускай с `model: "opus"`.
+Запусти `/mattpocock-skills:code-review staged`. Спека — `.tmp-review/spec.md`; стандарты — путь из аргумента, если передан. Субагентов запускай с `model: "opus"` и `effort: "medium"`.
 
 ## 3. Threads
 

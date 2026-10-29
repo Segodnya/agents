@@ -16,7 +16,7 @@ Done when you can state the feature in one sentence and list its use cases from 
 
 ## 2. Launch code recon (background, parallel with step 3)
 
-Two `Explore` agents, `model: sonnet`, in one message:
+Two `Explore` agents, `model: sonnet`, `effort: medium`, in one message:
 
 - **Host**: where the feature lands. Its files and framework, and how sibling items behave there, e.g. how they are configured, validated and saved (which click, which endpoint, which payload), how errors show, and how tariff and rights gates work.
 - **Domain**: the data the feature touches and its constraints, e.g. API and payload, limits (value, enforcement, error code, UI text), statuses, permissions, delete cascades, and list endpoints for selects (page size, search, count).
