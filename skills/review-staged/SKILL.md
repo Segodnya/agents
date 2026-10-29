@@ -78,10 +78,10 @@ After the spawn message **end your turn with one plain line `жду оси: A B 
 ## 3. Gate
 
 ```bash
-python3 "SKILL_DIR/../_lib/gate.py" RS_DIR --axes A B C D     # A B C under --no-spec; run from the repo root
+python3 "SKILL_DIR/../_lib/gate.py" RS_DIR --axes A B C D --require-coverage     # A B C under --no-spec; run from the repo root
 ```
 
-Your only judgment: a P0/P1 whose entry chain names a guard — open the guard; it makes the line unreachable → P2 or drop, note it on `_Прочее:_`. `rules_missing` non-empty → `SendMessage` B once with those paths, then rerun the gate. `other` → `_Прочее:_`.
+Your only judgment: a P0/P1 whose entry chain names a guard — open the guard; it makes the line unreachable → P2 or drop, note it on `_Прочее:_`. `rules_missing` non-empty → `SendMessage` B once with those paths; `files_missing` non-empty → `SendMessage` each listed axis once with its paths: its charter covers every file of the range, the caller's extra focus included. Then rerun the gate. `other` → `_Прочее:_`.
 
 ## 4. Threads
 

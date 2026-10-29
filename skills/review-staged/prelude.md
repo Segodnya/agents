@@ -42,8 +42,9 @@ Write your result with `Write` to `RS_DIR/axis-X.json`, then answer with one lin
   }],
   "design_notes": [{"question": "…", "locations": ["a.ts:12"]}],
   "rules_read": ["B only: every path you read from rule-files.txt and rules.md, copied verbatim, one per entry"],
+  "files_read": ["every path from RS_DIR/files.txt whose hunks you judged on your axis, copied verbatim"],
   "dropped": {"refuted": 0, "unproven": 0}
 }
 ```
 
-`{"candidates": [], "dropped": {…}}` is a complete answer. `rule_source` with `«…»` is grepped back in the named file — copy the line, don't restate it.
+`{"candidates": [], "files_read": […], "dropped": {…}}` is a complete answer: your axis covers every file of `files.txt`, an extra focus in your prompt included. `rule_source` with `«…»` is grepped back in the named file — copy the line, don't restate it.

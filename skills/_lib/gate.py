@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mechanical gate over the agents' candidates (review-staged, bugty-hunter). Run from the repo root.
 
-    gate.py DIR --axes A B C D                                   # review-staged
+    gate.py DIR --axes A B C D --require-coverage                # review-staged
     gate.py DIR --axes state lifecycle contract --map DIR/map.md --require-repro   # bugty-hunter
 
 Reads DIR/axis-<name>.json, DIR/files.txt (the perimeter) and, when present, DIR/checklist.md,
@@ -132,6 +132,8 @@ def main():
     p.add_argument("--axes", nargs="+", default=list("ABCD"))
     p.add_argument("--map", help="recon map: route candidates whose entry isn't an entry point to suspects")
     p.add_argument("--require-repro", action="store_true", help="drop candidates without repro steps")
+    p.add_argument("--require-coverage", action="store_true",
+                   help="every axis lists the perimeter files it read in files_read; gaps go to files_missing")
     a = p.parse_args()
     rs = a.rs_dir
 
@@ -142,7 +144,7 @@ def main():
 
     files = [f.strip() for f in (read(f"{rs}/files.txt") or "").splitlines() if f.strip()]
     tally = dict.fromkeys(REASONS, 0)
-    cands, notes, rules_read, other, log = [], [], {}, [], []
+    cands, notes, rules_read, files_read, other, log = [], [], {}, {}, [], []
     for x in a.axes:
         try:
             data = json.loads(read(f"{rs}/axis-{x}.json"))
@@ -159,6 +161,7 @@ def main():
                   for n in data.get("design_notes") or []]
         if data.get("rules_read") is not None:
             rules_read[x] = data["rules_read"]
+        files_read[x] = data.get("files_read") or []
 
     kept = []
     for i, c in enumerate(cands, 1):
@@ -192,6 +195,14 @@ def main():
         return os.path.realpath(os.path.expanduser(f.split(" (")[0].strip()))
     read_b = {norm(f) for f in rules_read.get("B") or []}
     rules_missing = [f for f in expected if norm(f) not in read_b] if "B" in rules_read else []
+    # an axis that read only the last commits looks complete; its own file list shows the gap
+    files_missing = {}
+    if a.require_coverage:
+        for x, listed in files_read.items():
+            seen = {norm(f) for f in listed}
+            gap = [f for f in files if norm(f) not in seen]
+            if gap:
+                files_missing[x] = gap
 
     discarded = sum(tally.values())
     total = len(cands) + tally["refuted"] + tally["unproven"] + tally["unparseable"]
@@ -203,10 +214,11 @@ def main():
     with open(f"{rs}/gate.json", "w", encoding="utf-8") as fh:
         json.dump({"findings": findings, "tickets": tickets, "suspects": suspects, "design_notes": notes, "tally": tally,
                    "discarded_line": line, "rules_read": rules_read, "rules_missing": rules_missing,
-                   "other": other}, fh, ensure_ascii=False, indent=1)
+                   "files_missing": files_missing, "other": other}, fh, ensure_ascii=False, indent=1)
     print(line)
     print(json.dumps({"findings": len(findings), "tickets": len(tickets), "suspects": len(suspects), "design_notes": len(notes),
-                      "rules_missing": rules_missing, "other": other}, ensure_ascii=False))
+                      "rules_missing": rules_missing, "files_missing": files_missing, "other": other},
+                     ensure_ascii=False))
 
 
 if __name__ == "__main__":
