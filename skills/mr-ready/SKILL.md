@@ -62,7 +62,7 @@ trigger: /mr-ready
    → `source_branch`, `target_branch`. Текущая ветка ≠ `source_branch` → вопрос.
 2. **Стейт** — `python3 "SKILL_DIR/scripts/state.py" init --url "<url>" --mr-dir MR_DIR --fetch "SKILL_DIR/../audit-reply/scripts/fetch_mr.py"`.
    `resumed` — продолжаешь; `archived` — история
-   переписана, начал с нуля, сообщи в отчёте; `conflicts` (Settled в описании ≠ стейт) → в вопрос.
+   переписана, начал с нуля, сообщи в отчёте.
 3. **База** — `target_branch` (не обязательно master: ветки стоят стопкой). `git fetch origin <target>`.
 4. **Контракт** — то, против чего решается, развилка ли правка. Не меняется до конца запуска, кроме
    правок чек-листа самим циклом.
@@ -75,7 +75,7 @@ trigger: /mr-ready
      Эпик — `fields.parent.key` из `jira issue view <KEY> --raw`; есть → дописываешь в `spec.md` раздел
      «Соседние задачи эпика»: `jira issue list -q 'parent = <EPIC>' --plain --columns key,summary,status >> MR_DIR/spec.md`.
      По нему ревьюер видит, какой экран или состояние из макета принадлежит другой задаче.
-   - Settled — уже в стейте из описания; плюс `--settled` или ссылка в `/goal` (читаешь как чек-лист) и
+   - Settled — уже в стейте с прошлых запусков; плюс `--settled` или ссылка в `/goal` (читаешь как чек-лист) и
      решения этой сессии → `state.py settle --mr-dir MR_DIR --text "решение · почему"`. Противоречие → в вопрос.
    - Макет — ссылки Figma из вызова, `/goal` или ТЗ; ссылок нет → без макета. Скриншоты — в
      `MR_DIR/design/<node>.png`; файл уже есть (продолжение) — оставляешь. Снимаешь сам, один раз: `get_screenshot`
@@ -208,11 +208,11 @@ trigger: /mr-ready
 3. **Публикация** — `python3 "SKILL_DIR/scripts/mr_post.py" publish --url "<url>" --mr-dir MR_DIR`: ответы
    из очереди в треды MR, треды для `L<n>` категорий stuck, reverted, minor, cap, deferred. `skipped` — в треде
    новая реплика человека: подхватит следующий запуск. `failed` → проверь факт сам, затем `mr_post.py reply --discussion <id> --body-file …` или в отчёт «не запощено».
-4. **Описание** — Summary в `MR_DIR/summary.md`: 1–2 предложения, что меняет MR (для рефакторинга — что
-   устроено иначе), без путей и счётчиков, по `git log --oneline origin/<target>..HEAD` и
-   `git diff --stat origin/<target>...HEAD`. Затем
-   `state.py describe --mr-dir MR_DIR --summary-file MR_DIR/summary.md --out MR_DIR/describe.md` (Summary,
-   Settled, Отклонено self-review, счётчики) → `mr_post.py describe --url "<url>" --body-file MR_DIR/describe.md`.
+4. **Описание** — `Skill mattpocock-skills:pr` → `MR_DIR/summary.md`: из шаблона только `## Summary` и
+   `## Merge Danger`, по `git log --oneline origin/<target>..HEAD` и `git diff origin/<target>...HEAD`.
+   Evidence пропускаешь: проверки видны в пайплайне MR. Затем
+   `state.py describe --mr-dir MR_DIR --summary-file MR_DIR/summary.md --out MR_DIR/describe.md` (дописывает
+   `## Требует внимания` — то, что ушло ревьюеру тредами в п. 3) → `mr_post.py describe --url "<url>" --body-file MR_DIR/describe.md`.
 
 Stop-хук отверг стоп-статус → `AskUserQuestion` «Продолжить раунды / Остаться на стопе (`/goal clear`)».
 

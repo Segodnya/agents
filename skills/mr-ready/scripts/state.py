@@ -12,8 +12,7 @@
     state.py settle   --mr-dir MR_DIR --text "решение · почему" [--replace S2 | --drop S2]
     state.py threads  --mr-dir MR_DIR --for review|fix --out FILE      # fetch_mr.py shape for review-staged / audit-reply --threads
                                                                        # --for review also prints `since`: HEAD before the last fix round
-    state.py describe --mr-dir MR_DIR --summary-file F --out FILE      # the block for mr_post.py describe
-                                                                       # rejected items whose code is gone at HEAD are left out
+    state.py describe --mr-dir MR_DIR --summary-file F --out FILE      # the block for mr_post.py describe: F + what is held for the reviewer
     state.py show     --mr-dir MR_DIR                                  # compact listing for the orchestrator
 
 An item is `L<n>` (origin local: a gate.json #n / TKn / Dn or a --claim) or a GitLab discussion_id (origin gitlab:
@@ -37,14 +36,12 @@ MARK_OPEN = "<!-- mr-ready -->"
 MARK_CLOSE = "<!-- /mr-ready -->"
 # render() puts a quoted rule as a `(… «…»)` line; a REPLY against it is the user's call
 RULE_LINE = re.compile(r"^\(.*«.+»\)$", re.M)
-SECTION = re.compile(r"^### (.+)$", re.M)
 # rounds in a row whose findings are all P2 / design notes: the loop has reached polish, the rest is the human's
 MINOR_STREAK = 3
 # held-for-the-reviewer categories: an open L-item with one of these gets a thread at handoff
 HANDOFF_CATS = {"stuck": "две правки не закрыли", "reverted": "правка откачена",
                 "cap": "не дошли: лимит раундов", "deferred": "отложено до ревьюера",
                 "minor": f"{MINOR_STREAK} раунда подряд без P0/P1"}
-REJECTED = "Отклонено self-review"
 # answer on a parked item's thread: review-staged closes a repeat of the claim against it
 PENDING = "Ждёт решения человека"
 
@@ -76,28 +73,6 @@ def head():
     return git("rev-parse", "HEAD").stdout.strip()
 
 
-def file_at_head(file):
-    r = git("show", f"HEAD:{file}", check=False)
-    return None if r.returncode else r.stdout
-
-
-def anchor_of(file, line, quote):
-    """Code the item points at, to tell later whether a fix removed it: the quote, else the anchored line."""
-    if quote:
-        return next((ln.strip() for ln in quote.splitlines() if ln.strip()), None)
-    content = file_at_head(file) if file and line else None
-    lines = content.splitlines() if content else []
-    return lines[line - 1].strip() or None if line and 0 < line <= len(lines) else None
-
-
-def superseded(it):
-    """The anchored file or code is gone at HEAD: a later fix replaced what the item was about."""
-    if not it.get("file"):
-        return False
-    content = file_at_head(it["file"])
-    return content is None or bool(it.get("anchor")) and it["anchor"] not in content
-
-
 def where(it):
     return f"{it['file']}:{it['line']}" if it.get("file") else "general"
 
@@ -125,13 +100,6 @@ def new_local(s, **fields):
     return lid
 
 
-def reject(s, it, reason):
-    it.update(status="rejected", reason=reason)
-    if not it.get("rid"):
-        it["rid"] = f"R{s['next_r']}"
-        s["next_r"] += 1
-
-
 def resolve(s, key):
     """An L-id is whole (L3 is a prefix of L31); a GitLab id may come cut to 8 chars."""
     if key in s["items"]:
@@ -145,26 +113,13 @@ def get(s, key):
     return (k, s["items"][k]) if k else sys.exit(f"{key} not in state")
 
 
-def sections(desc):
-    """`### Title` → lines of our marked block, so a hand edit of the description flows back on Ground."""
-    if MARK_OPEN not in desc or MARK_CLOSE not in desc:
-        return {}
-    block = desc.split(MARK_OPEN, 1)[1].rsplit(MARK_CLOSE, 1)[0]
-    parts = SECTION.split(block)
-    return {parts[i].strip(): [x for x in parts[i + 1].splitlines() if x.strip()] for i in range(1, len(parts), 2)}
-
-
-def parse_ids(lines, prefix):
-    return {m.group(1): m.group(2).strip() for x in lines if (m := re.match(rf"^- ({prefix}\d+) · (.+)$", x.strip()))}
-
-
 def settled_block(s):
     return "### Settled\n" + "\n".join(f"- {k} · {v}" for k, v in s["settled"].items())
 
 
 def cmd_init(a):
     os.makedirs(a.mr_dir, exist_ok=True)
-    out = {"ok": True, "resumed": False, "archived": None, "conflicts": []}
+    out = {"ok": True, "resumed": False, "archived": None}
     old = None
     if os.path.exists(path(a.mr_dir)):
         old = load(a.mr_dir)
@@ -179,26 +134,11 @@ def cmd_init(a):
     mr = json.loads(r.stdout)
     threads = mr.pop("threads")
     desc = mr.get("description") or ""
-    sec = sections(desc)
-    s = old or {"url": a.url, "items": {}, "settled": {}, "next_l": 1, "next_r": 1, "round": 0}
+    s = old or {"url": a.url, "items": {}, "settled": {}, "next_l": 1, "round": 0}
     s["mr"], s["head"] = mr, head()
     # what is outside our block is the author's — threads.json shows it untouched
     mr["description"] = re.sub(re.escape(MARK_OPEN) + r".*?" + re.escape(MARK_CLOSE), "", desc, flags=re.S).strip()
-    for sid, text in parse_ids(sec.get("Settled", []), "S").items():
-        if s["settled"].get(sid, text) != text:
-            out["conflicts"].append({"id": sid, "description": text, "state": s["settled"][sid]})
-        else:
-            s["settled"][sid] = text
     out["resumed"] = bool(old)
-    if not old:
-        # another machine or an archived state: the description is the only record of the agent's rejections;
-        # a line is `[`file:line` · ]claim[ · reason]`, as cmd_describe writes it
-        for rid, text in parse_ids(sec.get(REJECTED, []), "R").items():
-            m = re.match(r"^`([^`]+):(\d+)` · (.*)$", text)
-            claim, _, reason = (m.group(3) if m else text).rpartition(" · ")
-            lid = new_local(s, claim=claim or reason, file=m and m.group(1), line=m and int(m.group(2)))
-            s["items"][lid].update(status="rejected", reason=reason if claim else "", rid=rid)
-            s["next_r"] = max(s["next_r"], int(rid[1:]) + 1)
     for t in threads:
         prev = s["items"].get(t["discussion_id"], {})
         # a posted reply is in the fresh copy now; a queued one and the user's decisions survive the re-import
@@ -230,7 +170,6 @@ def gate_entry(g, gid, top):
     line = int(line) if line else None
     return {"kind": {"TK": "ticket", "D": "note"}.get(re.match(r"[A-Z]*", gid.lstrip("#")).group(), "finding"),
             "claim": f.get("claim") or f.get("question") or "", "file": file or None, "line": line,
-            "anchor": anchor_of(file, line, ev.get("quote")),
             "locations": locs, "repro": ev.get("repro"), "severity": f.get("severity"),
             "rule_source": rule, "rule": bool(rule and rule != "universal")}
 
@@ -317,7 +256,7 @@ def cmd_fold(a):
         elif kind == "REVERTED":
             it.update(status="open", cat="reverted", reason=body)
         else:
-            reject(s, it, body)
+            it.update(status="rejected", reason=body)
     if a.discuss and os.path.exists(a.discuss):
         with open(a.discuss, encoding="utf-8") as fh:
             for line in fh:
@@ -360,7 +299,7 @@ def cmd_decide(a):
     elif not a.text:
         sys.exit("--choice reply needs --text")
     elif local(it):
-        reject(s, it, a.text)
+        it.update(status="rejected", reason=a.text)
     else:
         it.update(status="queued", reply={"kind": "REPLY", "body": a.text, "at": time.time()})
     save(a.mr_dir, s)
@@ -457,25 +396,26 @@ def counts(s):
             "minor": s["round"] - s.get("last_serious", 0) >= MINOR_STREAK}
 
 
+def handoff_why(it):
+    return HANDOFF_CATS[it["cat"]] + (f": {it['reason']}" if it["cat"] == "reverted" and it["reason"] else "")
+
+
 def cmd_describe(a):
     s = load(a.mr_dir)
     with open(a.summary_file, encoding="utf-8") as fh:
-        parts = [f"### Summary\n{fh.read().strip()}"]
-    if s["settled"]:
-        parts.append(settled_block(s))
-    items = [it for it in s["items"].values() if local(it)]
-    rej = sorted((it for it in items if it["status"] == "rejected" and not superseded(it)),
-                 key=lambda it: int(it["rid"][1:]))
-    if rej:
-        parts.append(f"### {REJECTED}\n" + "\n".join(
-            f"- {it['rid']} · " + (f"`{where(it)}` · " if it["file"] else "") + it["claim"]
-            + (f" · {it['reason']}" if it["reason"] else "") for it in rej))
-    n = {k: sum(it["status"] == k for it in items) for k in ("fixed", "rejected")}
-    notes = sum(it["kind"] == "note" and it["status"] == "rejected" for it in items)
-    held = sum(it.get("cat") in HANDOFF_CATS for it in items)
-    deferred = sum(it.get("cat") == "deferred" for it in s["items"].values())
-    parts.append(f"### Self-review\n{s['round']} раундов · поправлено: {n['fixed']} · отклонено: {n['rejected'] - notes} · "
-                 f"design notes: {notes} · на ревьюера: {held} · отложено: {deferred}")
+        parts = [fh.read().strip()]
+    held = []
+    for it in s["items"].values():
+        if it.get("cat") not in HANDOFF_CATS or it["status"] not in ("open", "posted"):
+            continue
+        if local(it):
+            loc, claim = it["file"] and where(it), it["claim"]
+        else:
+            t = it["thread"]
+            loc, claim = t["file"] and where({"file": t["file"], "line": t["new_line"]}), (t["body"].splitlines() or [""])[0]
+        held.append("- " + (f"`{loc}` — " if loc else "") + f"{claim} · {handoff_why(it)}")
+    if held:
+        parts.append("## Требует внимания\n" + "\n".join(held))
     with open(a.out, "w", encoding="utf-8") as fh:
         fh.write("\n\n".join(parts) + "\n")
     return {"ok": True}

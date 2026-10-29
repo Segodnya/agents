@@ -172,8 +172,7 @@ def cmd_publish(a, host, proj, iid):
     # diff_refs don't change within a run: one GET for every positioned thread
     refs = api(host, "GET", mr_endpoint(proj, iid))["diff_refs"] if held and not a.dry_run else None
     for lid, it in held.items():
-        why = state.HANDOFF_CATS[it["cat"]] + (f": {it['reason']}" if it["cat"] == "reverted" and it["reason"] else "")
-        ns = argparse.Namespace(file=it["file"], line=it["line"], body=f"{state.render(it)}\n\n_{why}_")
+        ns = argparse.Namespace(file=it["file"], line=it["line"], body=f"{state.render(it)}\n\n_{state.handoff_why(it)}_")
         if a.dry_run:
             out["threads"].append({"id": lid, "body": ns.body, "dry_run": True})
             continue

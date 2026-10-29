@@ -23,8 +23,8 @@ gate = {
 fails = []
 
 no_line = state.gate_entry(gate, "#1", top)
-if no_line["line"] is not None or no_line["anchor"] is not None:
-    fails.append(f"#1: line/anchor должны быть None, а {no_line['line']!r}/{no_line['anchor']!r}")
+if no_line["line"] is not None:
+    fails.append(f"#1: line должен быть None, а {no_line['line']!r}")
 
 no_file = state.gate_entry(gate, "#2", top)
 if no_file["file"] is not None or no_file["line"] is not None:
