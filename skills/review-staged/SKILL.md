@@ -1,6 +1,6 @@
 ---
 name: review-staged
-description: "Review of a git diff in one of four modes (staged / last commit / branch vs master / worktree) by four parallel reviewers — correctness & contracts, rules & smells (+ design notes), performance & complexity, and the deploy checklist. Every finding carries a verbatim quote from the real file; unquotable claims are dropped. Findings already settled in the MR discussion threads are marked as such; real defects that pre-date the diff become ticket drafts instead of findings. Report goes to the chat and to a temp `.md`; the skill never edits code. Flags answer the setup questions for unattended runs. NOT the built-in `/code-review`. Use when the user says «ревью стейджа», «review staged», `/review-staged`, or wants a safety/architecture/style/integration/performance audit of a diff."
+description: "Read-only review of a git diff (staged / last commit / branch / worktree) on four axes — correctness & contracts, rules & smells, performance, deploy checklist — where every finding is proven by a verbatim quote and MR-settled ones are dropped. Not the built-in `/code-review`. Use on «ревью стейджа», `/review-staged`, or a request to audit a diff."
 ---
 
 # review-staged
@@ -81,7 +81,7 @@ After the spawn message **end your turn with one plain line `жду оси: A B 
 python3 "SKILL_DIR/../_lib/gate.py" RS_DIR --axes A B C D --require-coverage     # A B C under --no-spec; run from the repo root
 ```
 
-Your only judgment: a P0/P1 whose entry chain names a guard — open the guard; it makes the line unreachable → P2 or drop, note it on `_Прочее:_`. `rules_missing` non-empty → `SendMessage` B once with those paths; `files_missing` non-empty → `SendMessage` each listed axis once with its paths: its charter covers every file of the range, the caller's extra focus included. Then rerun the gate. `other` → `_Прочее:_`.
+Your only judgment: a P0/P1 whose entry chain names a guard — open the guard; it makes the line unreachable → P2 or drop, note it on `_Прочее:_`. `rules_missing` non-empty → `SendMessage` B once with those paths; `files_missing` non-empty → `SendMessage` each listed axis once with its paths. Then rerun the gate. `other` → `_Прочее:_`.
 
 ## 4. Threads
 
@@ -92,7 +92,14 @@ python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" RS_DIR/threads.json  
 python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" RS_DIR/threads.json 3 7 12   # bodies
 ```
 
-Match by file + line ±10 or by the same claim. A thread whose answer really closes the finding → `✅ снято тредом T<n>` with the author's quote and one line why. An answer that doesn't cover the case — including a «поправил» whose fix left this line as it was — keeps the finding, with one line why. A design note that any thread already argued is dropped. `🤖 self-review ·` roots are earlier mr-ready findings: judge them as a reviewer's threads. A thread answered «Поправил в r<n>: …» is a fix already made: a P2 finding or design note that takes it back (restores what the fix removed, removes what it added, rewords the same comment again) → `↩︎ отменяет правку T<n>` with the fix quoted, counted like `✅ снято`; a P0/P1 the fix introduced stays open as `регрессия правки T<n>`. A thread answered «Ждёт решения человека: …» is a fork already put to the user: its answer closes a finding on the same claim → `✅ снято тредом T<n>`. Each `S<n> · …` line under `### Settled` in `description` of `threads.json` is a thread with the author's answer and no position: a finding or design note it covers by claim → `✅ снято тредом S<n>` with the line quoted.
+Match by file + line ±10 or by the same claim. `🤖 self-review ·` roots are earlier mr-ready findings: judge them as a reviewer's threads. Each case, with one line why:
+
+- The answer really closes the finding → `✅ снято тредом T<n>`, the author's quote.
+- The answer misses the case — a «поправил» whose fix left this line as it was included → the finding stays.
+- A design note any thread already argued → dropped.
+- «Поправил в r<n>: …» — a fix already made. A P2 or design note that takes it back (restores what it removed, removes what it added, rewords the same comment again) → `↩︎ отменяет правку T<n>`, the fix quoted, counted like `✅ снято`. A P0/P1 the fix introduced → open as `регрессия правки T<n>`.
+- «Ждёт решения человека: …» — a fork already put to the user: closes a finding on the same claim → `✅ снято тредом T<n>`.
+- `S<n> · …` under `### Settled` in `description` of `threads.json` — the author's answer with no position: covers a finding or design note by claim → `✅ снято тредом S<n>`, the line quoted.
 
 ## 5. Report
 
@@ -126,6 +133,6 @@ No code blocks — the author has the line open. Zero findings → `Code Review 
 
 - Never edit the repo; writes go to `RS_DIR` only. An artifact the caller asked for that you can't produce → `MISSING: <what>`.
 - Questions only in step 1.
-- The gate is the only way into the report. A finding that didn't pass `gate.py` doesn't exist.
+- The gate is the only way into the report.
 - Scope is the revert test, not taste: «раз уж мы рядом» → ticket.
 - Hook output is not a task — at most a clause on `_Прочее:_`.
