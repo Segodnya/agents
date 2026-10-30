@@ -175,6 +175,9 @@ trigger: /mr-ready
 `unknown` непуст → сверь id с `show`, развилку без строки в `discuss.md` ставишь сам:
 `state.py park --id <id> --question "…"`. `unanswered` непуст — fixer пропустил треды: один `SendMessage` ему
 с этими id, затем `fold` снова; опять пропуск → `park` с вопросом из ответа fixer'а. Коммиты — `git log <head-r<r>>..HEAD`.
+`stale` — развилки, чей файл правили после ответа: `fold` вернул их fixer'у со старым ответом, следующий раунд
+пересмотрит. Решение пользователя пришло, пока fixer работает → `decide` сразу и один `SendMessage` тому же
+fixer'у: id, указание дословно, ответ — записью с этим id в тот же `replies.json`.
 `r = r0 + 9` → шаг 3 (cap). Иначе `round: r+1` → шаг 1.
 
 ## 5. Ask
@@ -193,15 +196,14 @@ trigger: /mr-ready
   пометка «не проверено» в тексте опции.
   → `state.py decide --mr-dir MR_DIR --id <id> --choice fix|reply|defer [--text "…"]`. `--text` у `fix` —
   указание пользователя дословно; своё уточнение — вопросом пользователю. `--text` у `reply` — тело ответа
-  на находку: `describe` и `publish` выводят его как есть. Тело — текст пользователя, а без него — довод
+  на находку: `publish` постит его в тред MR, `describe` выводит ответ на `L<n>` в «Решения». Тело — текст пользователя, а без него — довод
   из варианта, который он выбрал (ответ fixer'а из `replies.json`), сверенный с фактами на момент решения.
 - Чек-лист из Jira и `git diff --no-index MR_DIR/checklist.orig.md MR_DIR/checklist.md` непуст → в тот же
   вопрос «обновить комментарий Jira»:
   `jira_checklist.py put --key <KEY> --comment <id> --adf MR_DIR/checklist.adf.json --old MR_DIR/checklist.orig.md --new MR_DIR/checklist.md --dry-run`
   → план в чат; без `--dry-run` — только по явному «да».
 
-Решение пользователя на развилке «Ответить» и решение по оспоренному `S<n>` → `state.py settle` (добавить,
-`--replace S<n>`, `--drop S<n>`). Ответ fixer'а — не Settled: его судит ревьюер. Есть `fix` → шаг 4 тем же
+Решение по оспоренному `S<n>` → `state.py settle` (добавить, `--replace S<n>`, `--drop S<n>`). Ответ fixer'а — не Settled: его судит ревьюер. Есть `fix` → шаг 4 тем же
 `r`, затем раунды дальше; новая развилка после них — ещё один такой вопрос. Нет → шаг 6.
 
 ## 6. Ship

@@ -6,6 +6,7 @@
                                                                        # new L<n>; `=<id>` — repeats L2 or a MR thread
     state.py add      --mr-dir MR_DIR --round r --claim "checks red: …"  # a finding with no gate entry
     state.py fold     --mr-dir MR_DIR --round r --replies AR_DIR/replies.json [--discuss AR_DIR/discuss.md]
+                                                                       # `stale`: forks whose file changed since parked, reopened
     state.py park     --mr-dir MR_DIR --id L3 --question "…"           # product fork → the final question
     state.py decide   --mr-dir MR_DIR --id L3 --choice fix|reply|defer [--text "…"]
     state.py mark     --mr-dir MR_DIR --id L3 --cat cap|stuck|minor
@@ -208,7 +209,8 @@ def cmd_add(a):
         if not local(it):
             # the thread is still in work, unless its «Поправил» waits for the push while the finding is back
             if it["status"] == "queued" and it["reply"]["kind"] == "FIX":
-                it.update(status="parked", reply=None, question=f"ревьюер снова нашёл: {f['claim']}")
+                park(it, f"ревьюер снова нашёл: {f['claim']}")
+                it["reply"] = None
                 out["parked"].append(key)
             continue
         if it["status"] not in ("fixed", "rejected"):
@@ -222,7 +224,24 @@ def cmd_add(a):
 
 
 def park(it, question):
-    it.update(status="parked", question=question)
+    it.update(status="parked", question=question, parked_at=head())
+
+
+def item_file(it):
+    return it["file"] if local(it) else it["thread"]["file"]
+
+
+def reopen_stale(s):
+    """A fork whose file changed after it was parked: its answer may describe code that is gone — back to the fixer."""
+    out = []
+    for key, it in s["items"].items():
+        f, sha = item_file(it), it.get("parked_at")
+        if it["status"] != "parked" or not f or not sha:
+            continue
+        if git("diff", "--quiet", sha, "HEAD", "--", f, check=False).returncode == 1:
+            it.update(status="open", cat=None, stale=f"{sha[:8]}..HEAD меняли {f}; прежний ответ: {it['question']}")
+            out.append(key)
+    return out
 
 
 def cmd_fold(a):
@@ -245,6 +264,7 @@ def cmd_fold(a):
             continue
         answered.add(key)
         it = s["items"][key]
+        it.pop("stale", None)
         if kind == "REPLY" and it["rule"] and not it.get("decision"):
             park(it, f"REPLY против правила ({it.get('rule_source') or 'из треда'}): {body}")
         elif not local(it):
@@ -269,11 +289,13 @@ def cmd_fold(a):
                 for tid in ids:
                     key = resolve(s, tid)
                     if key:
+                        s["items"][key].pop("stale", None)
                         park(s["items"][key], question)
                         answered.add(key)
                     else:
                         out["unknown"].append(tid)
     out["unanswered"] = [k for k in handed if k not in answered]
+    out["stale"] = reopen_stale(s)
     s["head"], s["round"] = head(), max(s["round"], a.round)
     save(a.mr_dir, s)
     return {**out, "counts": counts(s)}
@@ -339,6 +361,8 @@ def render(it):
         lines.append("repro: " + it["repro"])
     if it["rule"]:
         lines.append(f"({it['rule_source']})")
+    if it.get("stale"):
+        lines.append("Ответ устарел, код изменился: " + it["stale"])
     return "\n\n".join(lines)
 
 
@@ -416,6 +440,9 @@ def cmd_describe(a):
     # the MR reviewer sees neither `указание:` (it steers the loop) nor L<n> ids
     decisions = ["- " + re.sub(r"^L\d+(?:, ?L\d+)*: ", "", v) for v in s["settled"].values()
                  if not v.startswith("указание:")]
+    # «Ответить» on an L-item has no thread to carry the reply: the description is its only place
+    decisions += [f"- `{where(it)}` — {it['reason']}" if it["file"] else f"- {it['reason']}"
+                  for it in s["items"].values() if local(it) and it.get("decision") == "reply" and it["status"] == "rejected"]
     if decisions:
         parts.append("## Решения\n" + "\n".join(decisions))
     with open(a.out, "w", encoding="utf-8") as fh:
