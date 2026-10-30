@@ -12,7 +12,7 @@
     state.py settle   --mr-dir MR_DIR --text "решение · почему" [--replace S2 | --drop S2]
     state.py threads  --mr-dir MR_DIR --for review|fix --out FILE      # fetch_mr.py shape for review-staged / audit-reply --threads
                                                                        # --for review also prints `since`: HEAD before the last fix round
-    state.py describe --mr-dir MR_DIR --summary-file F --out FILE      # the block for mr_post.py describe: F + what is held for the reviewer
+    state.py describe --mr-dir MR_DIR --summary-file F --out FILE      # the block for mr_post.py describe: F + unposted handoffs + user decisions
     state.py show     --mr-dir MR_DIR                                  # compact listing for the orchestrator
 
 An item is `L<n>` (origin local: a gate.json #n / TKn / Dn or a --claim) or a GitLab discussion_id (origin gitlab:
@@ -246,7 +246,7 @@ def cmd_fold(a):
         answered.add(key)
         it = s["items"][key]
         if kind == "REPLY" and it["rule"] and not it.get("decision"):
-            park(it, f"REPLY против правила: {body}")
+            park(it, f"REPLY против правила ({it.get('rule_source') or 'из треда'}): {body}")
         elif not local(it):
             it.update(status="queued", reply={"kind": kind, "body": body, "at": now}, decision=None)
         elif kind == "FIX":
@@ -406,16 +406,18 @@ def cmd_describe(a):
         parts = [fh.read().strip()]
     held = []
     for it in s["items"].values():
-        if it.get("cat") not in HANDOFF_CATS or it["status"] not in ("open", "posted"):
+        # a posted L-item and every GitLab thread are already in the MR; only a failed post needs the description
+        if not local(it) or it.get("cat") not in HANDOFF_CATS or it["status"] != "open":
             continue
-        if local(it):
-            loc, claim = it["file"] and where(it), it["claim"]
-        else:
-            t = it["thread"]
-            loc, claim = t["file"] and where({"file": t["file"], "line": t["new_line"]}), (t["body"].splitlines() or [""])[0]
-        held.append("- " + (f"`{loc}` — " if loc else "") + f"{claim} · {handoff_why(it)}")
+        loc = it["file"] and where(it)
+        held.append("- " + (f"`{loc}` — " if loc else "") + f"{it['claim']} · {handoff_why(it)}")
     if held:
         parts.append("## Требует внимания\n" + "\n".join(held))
+    # the MR reviewer sees neither `указание:` (it steers the loop) nor L<n> ids
+    decisions = ["- " + re.sub(r"^L\d+(?:, ?L\d+)*: ", "", v) for v in s["settled"].values()
+                 if not v.startswith("указание:")]
+    if decisions:
+        parts.append("## Решения\n" + "\n".join(decisions))
     with open(a.out, "w", encoding="utf-8") as fh:
         fh.write("\n\n".join(parts) + "\n")
     return {"ok": True}
