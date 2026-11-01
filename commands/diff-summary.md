@@ -1,6 +1,6 @@
 ---
 description: Краткая однострочная сводка по диффу — готовая к вставке в описание MR
-argument-hint: "[staged|branch|working|<git-ref|range>]"
+argument-hint: "[staged|branch [--base <branch>]|working|<git-ref|range>]"
 allowed-tools: Bash(git diff:*), Bash(git merge-base:*), Bash(git rev-parse:*), Bash(git status:*)
 ---
 
@@ -14,8 +14,9 @@ allowed-tools: Bash(git diff:*), Bash(git merge-base:*), Bash(git rev-parse:*), 
 Аргумент: `$ARGUMENTS` (по умолчанию — `staged`).
 
 - (пусто) / `staged` → `git diff --staged`
-- `branch` → от точки ответвления с master:
-  `BASE=$(git merge-base origin/master HEAD 2>/dev/null || git merge-base master HEAD 2>/dev/null || echo HEAD)`,
+- `branch` → от точки ответвления с базой. База — `--base <branch>`, иначе ветка `origin/HEAD`, иначе `master`:
+  `BASE_REF=origin/<branch из --base>` или `BASE_REF=$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null || echo origin/master)`,
+  `BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null || git merge-base master HEAD 2>/dev/null || echo HEAD)`,
   затем `git diff "$BASE"` (коммиты ветки + незакоммиченное — то, что уходит в MR).
 - `working` / `head` → `git diff HEAD`
 - иначе трактуй аргумент как git-ref / range и сделай `git diff <arg>`.

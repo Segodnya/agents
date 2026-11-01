@@ -34,7 +34,7 @@ Trace the data flow. Don't guess — read.
   - **build-only**: chunk/CSS load order, minifier semantics, `NODE_ENV` branches, sourceless third-party bundle — these cannot reproduce on the dev build at all (see Step 3b)
 - Walk the call graph: `grep`/`rg` via Bash by default ("where is X declared" → grep), `Read` for surrounding context. `LSP` (ts/js/tsx, php, rust, go; `ToolSearch("select:LSP")` first) only where grep answers wrong: `outgoingCalls` to follow the flow forward, `findReferences`/`incomingCalls` for callers when names collide, `hover` for the inferred type at a boundary; position from `workspaceSymbol`, always with `query`. Twig, CSS, `.po`, vendor bundles, untyped Backbone: grep and read the source. Prefer the Explore agent if the surface is broad (≥3 layers to trace) — pass it this navigation bullet.
 
-Report a short trace back to the user (3–6 bullets) naming the suspected mechanism(s) BEFORE instrumenting.
+Report a short trace back to the user (one bullet per suspected mechanism) naming the suspected mechanism(s) BEFORE instrumenting.
 
 ## Step 3 — Instrument with console.warn probes
 
@@ -112,7 +112,7 @@ When logs arrive, follow this template literally — it is the contract for this
 
 Then produce:
 
-1. **Data flow** — 3–6 numbered lines showing what the logs prove happened, in order. Reference probe tags, timestamps and the actual numbers; make the arithmetic check out (`139.667 × 3 = 419` beats "the measurement was wrong").
+1. **Data flow** — one numbered line per event the logs prove, in order. Reference probe tags, timestamps and the actual numbers; make the arithmetic check out (`139.667 × 3 = 419` beats "the measurement was wrong").
 2. **Root cause** — one paragraph naming the exact mechanism. Be specific: "the mapper drops `nullable` fields when the upstream payload uses `null` instead of omitting the key" beats "data shape issue".
 3. **Why the obvious fix is wrong** — one or two sentences ruling out the local workaround (e.g. "patching the component to coalesce undefined hides the same bug for every other consumer of this selector").
 4. **Minimal architectural fix** — name the file(s) and the change. Prefer the fix that lives at the boundary where the contract is violated. Show a small before/after snippet. If two changes are only correct together (a missing trigger AND a guard that burned a one-shot flag), say so explicitly.

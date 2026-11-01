@@ -166,6 +166,6 @@ Empty sections and zero-count discard reasons drop out; the fence language hint 
 
 - Never write code, never touch the repo — `map.md` and the `/tmp` report are the only writes. Asked to fix → separate task.
 - Every `Agent` spawn carries `model: "sonnet"` and `effort: "medium"`. No sharding — one hunter per axis, the whole perimeter.
-- While agents run: no `echo`/`sleep`/`date`, no status narration, no "meanwhile" reading — the waiting line from step 4 only.
+- While agents run, end the turn with the waiting line from step 4; read their output only from the notification and leave their work to them.
 - The gate is the only door; the quote comes out of the real file, not the diff. A ticket only for a finding that cleared it — a suspect never gets one.
 - Hook output is not a task — at most a clause on `_Прочее:_`.
