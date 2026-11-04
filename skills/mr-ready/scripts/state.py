@@ -10,6 +10,7 @@
     state.py park     --mr-dir MR_DIR --id L3 --question "…"           # product fork → the final question
     state.py decide   --mr-dir MR_DIR --id L3 --choice fix|reply|defer [--text "…"]
     state.py mark     --mr-dir MR_DIR --id L3 --cat cap|stuck|minor
+    state.py restate  --mr-dir MR_DIR --id L3 --claim "…"              # the thread text at Ship: drop what commits closed
     state.py settle   --mr-dir MR_DIR --text "решение · почему" [--replace S2 | --drop S2]
     state.py threads  --mr-dir MR_DIR --for review|fix --out FILE      # fetch_mr.py shape for review-staged / audit-reply --threads
                                                                        # --for review also prints `since`: HEAD before the last fix round
@@ -336,6 +337,16 @@ def cmd_mark(a):
     return {"ok": True, "id": key}
 
 
+def cmd_restate(a):
+    s = load(a.mr_dir)
+    key, it = get(s, a.id)
+    if not local(it) or it["status"] == "posted":
+        sys.exit(f"{key}: restate needs an unposted L-item")
+    it["claim"] = a.claim
+    save(a.mr_dir, s)
+    return {"ok": True, "id": key}
+
+
 def cmd_settle(a):
     s = load(a.mr_dir)
     if a.drop:
@@ -487,6 +498,7 @@ def main():
     cmd("park", ("--id", req), ("--question", req))
     cmd("decide", ("--id", req), ("--choice", {**req, "choices": ["fix", "reply", "defer"]}), ("--text", {}))
     cmd("mark", ("--id", req), ("--cat", {**req, "choices": ["cap", "stuck", "minor"]}))
+    cmd("restate", ("--id", req), ("--claim", req))
     cmd("settle", ("--text", {}), ("--replace", {}), ("--drop", {}))
     cmd("threads", ("--for", {**req, "dest": "for_", "choices": ["review", "fix"]}), ("--out", req))
     cmd("describe", ("--summary-file", req), ("--out", req))

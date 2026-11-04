@@ -88,7 +88,8 @@ trigger: /mr-ready
 5. **Проверки** → `MR_DIR/checks.txt`, команда на строку: typecheck, lint по файлам диффа, тесты по
    затронутой области — бинарями репо, плюс то, что требуют `CLAUDE.md` / `.claude/rules` проекта.
    Формат строки — docstring `scripts/run_checks.py`; файлы диффа — плейсхолдером
-   `{diff:origin/<target>:ts,tsx}`, не списком: список устаревает на первом новом или удалённом файле.
+   `{diff:origin/<target>:ts,tsx}`, не списком: список устаревает на первом новом или удалённом файле. Инструмент
+   резолвит конфиг от своей директории (подпроект монорепо) → `/usr/bin/env -C <dir> … {diff:origin/<target>:ts,tsx:<dir>}`.
    Прогони `run_checks.py` в `run_in_background` параллельно с пп. 6–7, итог — до вопроса: список должен
    запускаться и быть зелёным на HEAD (красное — уже находка, сообщи).
    Дифф меняет то, что исполняет не код репо (конфиг стороннего бинаря, манифест деплоя), или
@@ -212,7 +213,9 @@ fixer'у: id, указание дословно, ответ — записью �
 2. **Push** — HEAD уже на `origin/<source_branch>` → пропускаешь. Иначе `git push origin HEAD` в
    `run_in_background`, лог в `MR_DIR` (pre-push хук идёт минуты). Итог — `git fetch origin <source_branch>`
    и сравнение с HEAD. Отказ → стоп, `blocked`, историю не чинить, шаг 6.3 не делаешь.
-3. **Публикация** — `python3 "SKILL_DIR/scripts/mr_post.py" publish --url "<url>" --mr-dir MR_DIR`: ответы
+3. **Публикация** — сначала `mr_post.py publish … --dry-run`: тело каждого треда сверяешь с HEAD, часть, которую
+   закрыли коммиты, убираешь через `state.py restate --mr-dir MR_DIR --id L<n> --claim "…"`. Затем
+   `python3 "SKILL_DIR/scripts/mr_post.py" publish --url "<url>" --mr-dir MR_DIR`: ответы
    из очереди в треды MR, треды для `L<n>` категорий stuck, reverted, minor, cap, deferred. `skipped` — в треде
    новая реплика человека: подхватит следующий запуск. `failed` → проверь факт сам, затем `mr_post.py reply --discussion <id> --body-file …` или в отчёт «не запощено».
 4. **Описание** — `Skill mattpocock-skills:pr` → `MR_DIR/summary.md`: из шаблона только `## Summary` и

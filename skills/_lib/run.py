@@ -2,28 +2,31 @@
 
 No shell on purpose: `for c in "tsc -b"; do node_modules/.bin/$c; done` in zsh does not word-split,
 and every check dies with exit 127 while looking like a red run.
-˝"""
+"""
 import os
 import re
 import shlex
 import subprocess
 
-DIFF_TOKEN = re.compile(r"^\{diff:(?P<ref>[^:}]+):(?P<exts>[^}]+)\}$")
+DIFF_TOKEN = re.compile(r"^\{diff:(?P<ref>[^:}]+):(?P<exts>[^:}]+)(?::(?P<under>[^}]+))?\}$")
 
 
 def git_names(*args):
     return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout.split()
 
 
-def diff_files(ref, exts):
+def diff_files(ref, exts, under=None):
     """Files on disk that changed since the merge-base with `ref`, by extension: committed, uncommitted and untracked.
-    A fixer runs the checks before its commit, so a new file must be linted while still untracked."""
+    A fixer runs the checks before its commit, so a new file must be linted while still untracked.
+    `under` keeps the files under that directory, relative to it."""
     out = dict.fromkeys(git_names("diff", "--name-only", "--diff-filter=d", f"{ref}...HEAD")
                         + git_names("diff", "--name-only", "--diff-filter=d", "HEAD")
                         + git_names("ls-files", "--others", "--exclude-standard"))
     suffixes = tuple("." + e.strip().lstrip(".") for e in exts.split(","))
     # a fixer runs checks before committing a move: HEAD still lists the old path, the disk no longer has it
-    return [f for f in out if f.endswith(suffixes) and os.path.exists(f)]
+    files = [f for f in out if f.endswith(suffixes) and os.path.exists(f)]
+    prefix = os.path.join(under or "", "")
+    return [f[len(prefix):] for f in files if f.startswith(prefix)]
 
 
 def run(cmd, timeout, stdout=None):
@@ -31,7 +34,8 @@ def run(cmd, timeout, stdout=None):
     `VAR=val` prefixes go to the env; a bare `vitest` resolves to `node_modules/.bin/vitest` of the cwd
     (not on PATH outside npm scripts); missing binary → 127, timeout → 124.
     A `{diff:<ref>:<ext,ext>}` token expands to the diff's files with those extensions; none → the
-    command is skipped with exit 0."""
+    command is skipped with exit 0. `{diff:<ref>:<ext,ext>:<dir>}` keeps the files under `<dir>`,
+    relative to it, for a command that runs there (`/usr/bin/env -C <dir> …`)."""
     argv, env = shlex.split(cmd), dict(os.environ)
     expanded = []
     for arg in argv:
@@ -39,7 +43,7 @@ def run(cmd, timeout, stdout=None):
         if not m:
             expanded.append(arg)
             continue
-        files = diff_files(m["ref"], m["exts"])
+        files = diff_files(m["ref"], m["exts"], m["under"])
         if not files:
             note = f"skipped: no {m['exts']} files in the diff against {m['ref']}\n"
             if stdout:

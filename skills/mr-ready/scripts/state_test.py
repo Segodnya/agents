@@ -2,8 +2,10 @@
 """Самопроверка state.py на граничных записях gate.json: находка без строки, без файла, неизвестный id.
 Запуск из корня любого git-репо: python3 state_test.py"""
 
+import argparse
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -42,6 +44,22 @@ try:
 except SystemExit as e:
     if "#3 README.md:1" not in str(e):
         fails.append(f"TK1: в ошибке нет списка id для сверки по file:line: {e}")
+
+with tempfile.TemporaryDirectory() as mr_dir:
+    state.save(mr_dir, {"items": {
+        "L1": {"origin": "local", "status": "open", "claim": "старый"},
+        "L2": {"origin": "local", "status": "posted", "claim": "в MR"},
+        "abc": {"origin": "gitlab", "status": "open", "claim": "тред человека"},
+    }})
+    state.cmd_restate(argparse.Namespace(mr_dir=mr_dir, id="L1", claim="новый"))
+    if state.load(mr_dir)["items"]["L1"]["claim"] != "новый":
+        fails.append("restate: L1 не получил новый текст")
+    for key in ("L2", "abc"):
+        try:
+            state.cmd_restate(argparse.Namespace(mr_dir=mr_dir, id=key, claim="x"))
+            fails.append(f"restate: {key} нельзя переписать")
+        except SystemExit:
+            pass
 
 print("\n".join(fails) or "ok")
 sys.exit(1 if fails else 0)
