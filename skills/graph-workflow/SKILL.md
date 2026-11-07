@@ -1,6 +1,6 @@
 ---
 name: graph-workflow
-description: Graph of bounded nodes for a large task — a subagent per node, a gate on every output, code for deterministic steps, run files another session resumes from. Use when the user asks to run work as a graph or split it into nodes, or to resume a graph run.
+description: Graph of bounded nodes for a large task — subagents for heavy nodes, a gate on every output, code for deterministic steps, run files another session resumes from. Use when the user asks to run work as a graph or split it into nodes, or to resume a graph run.
 disable-model-invocation: true
 ---
 
@@ -22,20 +22,20 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
 
 0. **Run folder.** List the run folder before the first write. Stop at a `progress.md` or any file from another task: resume that run or pick a new folder.
    Done when the folder is empty or its `progress.md` has been read.
-1. **Pre-flight.** Read six inputs from the invocation and the conversation: task, deliverable with output path, acceptance checks, sources, scope (paths nodes may write), run limit. Ask for every missing or vague one in one numbered list; give each a one-line reason (scope sets where nodes may write, checks set what gates test). If the user says to make assumptions, record each under `## Assumptions` in `graph.md`; an unclear scope means read-only.
+1. **Pre-flight.** Dispatch a `recon` subagent for the reading: ticket, attachments, Figma, code. Its report has a fixed format: a draft of the six inputs, candidate nodes with `file:line`, and open questions, each with its measured number. The six inputs are task, deliverable with output path, acceptance checks, sources, scope (paths nodes may write), run limit. Fill them from the invocation, the conversation and the report. Ask for every missing or vague one in one numbered list; give each a one-line reason (scope sets where nodes may write, checks set what gates test). If the user says to make assumptions, record each under `## Assumptions` in `graph.md`; an unclear scope means read-only.
    Measure each option on the real system before you offer it: the question states what changes and the number that shows it.
    Done when every input except sources has a user value or a recorded assumption.
-2. **Baseline.** Run every acceptance check against the current state. Record each result in the ledger with node `baseline`.
+2. **Baseline.** Run every acceptance check against the current state; browser checks go to the browser node. Record each result in the ledger with node `baseline`.
    Done when every acceptance check has a baseline row.
-3. **Split.** Write nodes, edges and code nodes into `graph.md` by the node rules below. Write the completion checklist from the acceptance checks; each item names its observable evidence. Check the active permissions against the scope (see Permissions). Show the graph and the checklist, then stop for approval.
-   Done when the user approves.
+3. **Split.** Write nodes, edges and code nodes into `graph.md` by the node rules below. Write the completion checklist from the acceptance checks; each item names its observable evidence. Check the active permissions against the scope (see Permissions). Show the graph and the checklist, then stop for approval. After approval, write `progress.md` with the next ready node and tell the user to run `/clear` and resume: execution needs only the run files, and pre-flight leaves 90–190k tokens of reading behind.
+   Done when the user approves and `progress.md` names the next ready node.
 4. **Execute.** Repeat until the checklist is complete, a blocker stops all ready nodes, or the run limit is reached:
    1. Pick the ready nodes: every input exists.
-   2. Dispatch independent nodes in parallel in one message. Run code nodes as scripts.
+   2. Dispatch independent subagent nodes in parallel in one message; browser nodes go one at a time. Run code nodes as scripts.
    3. Gate each output against its saved file.
    4. Send a failed output down its correction edge. Merge a passed output with code.
    5. Update the ledger and `progress.md`.
-5. **Deliver.** Return the paths to the deliverable, `graph.md`, `checks.md` and `progress.md`. Report what passed, what failed and what is unresolved, each with its evidence. On a limit or a blocker, list the exact nodes left. Write learned rules along the learning edge.
+5. **Deliver.** Return the paths to the deliverable, `graph.md`, `checks.md` and `progress.md`. Report what passed, what failed and what is unresolved, each with its evidence. On a limit or a blocker, list the exact nodes left. Write learned rules along the learning edge. Tell the user to run the hand-off skills (commit message, deploy checklist, `/simplify`, retro) after `/clear`: they need the diff and the run folder, not this conversation.
    Done when `graph.md` lists exactly the nodes that ran and every checklist item has a ledger row.
 
 ## Nodes
@@ -44,6 +44,9 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
 - Split by what each node must read, not by folder. Prefer fewer nodes when results are comparable.
 - Draw an edge only when a node consumes another node's output. Nodes with no path between them run in parallel.
 - A step with exactly one correct answer (merge, sort, dedupe, compare, count) is a **code node**: a script listed in `graph.md`. Subagents get judgment work only.
+- A script that runs twice is a file in the run folder, called by path: `python3 <file>`, `evaluate_script` with `sourcePath`.
+- Pick the executor by cost and write it next to each node in `graph.md`. A node that reads many files, drives the browser or iterates runs in a subagent; its reading and reasoning stay there. An edit at known lines of one file runs in the main session.
+- **Browser node:** one subagent at a time owns the chrome-devtools browser; subagents reach the MCP browser like the main session. It runs the baseline and every browser gate, and returns ledger rows `check | value | screenshot path`.
 - Each file has one writer node.
 - A subagent prompt carries the node spec, its input paths, its check and its write scope. The subagent returns the output path, the verdict, and the evidence as command plus output.
 
