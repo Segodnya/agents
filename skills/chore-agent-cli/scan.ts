@@ -110,10 +110,11 @@ const familyOf = (seg: string) => {
   }
   return t.slice(0, DEEP.has(t[0]) ? 3 : 2).join(' ');
 };
-// Heredoc bodies and quoted scripts (`python3 -c "…"`) are data, not commands. A pipeline counts by its first stage.
+// Heredoc bodies and quoted scripts (`python3 -c "…"`) are data, not commands, but the rest of the heredoc's opening line and the lines after it are commands. A pipeline counts by its first stage.
+const HEREDOC = /(?<!<)<<-?\s*(['"]?)([\w.-]+)\1([^\n]*)\n(?:[\s\S]*?\n)?[\t ]*\2[\t ]*(?=\n|$)/g;
 const segments = (command: string, cwd: string) =>
   command
-    .split('<<')[0]
+    .replace(HEREDOC, '$3')
     .replace(/'[^']*'|"[^"]*"/g, '<s>')
     .split(/\s*(?:&&|\|\||;|\n)\s*/)
     .map((s) => normalize(s.split(/\s\|\s/)[0], cwd))

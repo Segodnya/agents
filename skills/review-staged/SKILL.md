@@ -67,7 +67,7 @@ B also gets the literal paths `RS_DIR/rules.md` and `RS_DIR/rule-files.txt`. Thr
 
 **A · Correctness & contracts** — null/undefined, off-by-one, races, unhandled rejections, type holes; security at trust boundaries; empty/huge/odd inputs; a changed signature or payload with a caller not updated (quote both); a key or name that must match another artifact (i18n catalog, config, route, schema, feature flag) changed on one side only, or hard-coded where the repo looks it up; tests that assert less than they claim.
 
-**B · Rules & smells** — read `rules.md` whole (by `===== RULE FILE` sections) and every file in `rule-files.txt`; cite a rule as `<file>: «<line verbatim>»`; list what you read in `rules_read`. Fowler smells (P2 unless they bite). Up to 3 design notes, each a question on a named hunk: needed at all? / adds work that wasn't there? / simpler path?
+**B · Rules & smells** — read `rules.md` whole (by `===== RULE FILE` sections) and every file in `rule-files.txt`; cite a rule as `<file>: «<line verbatim>»`; list what you read in `rules_read`. Fowler smells (P2 unless they bite). A hunk the task does not need — imports or formatting rewritten by a bulk autofix, reordering in a file otherwise touched on one line — is a P2 quoted at the hunk: scope noise hides the real change. Up to 3 design notes, each a question on a named hunk: needed at all? / adds work that wasn't there? / simpler path?
 
 **C · Performance** — each P0/P1 names the delta (`O(n·m) → O(n+m)`, `+1 request → reuse`): nested lookups, work in loops, sequential awaits, redundant requests, work repeated per call / render / event that its inputs don't require.
 
