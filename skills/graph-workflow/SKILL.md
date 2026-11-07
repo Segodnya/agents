@@ -10,7 +10,7 @@ Run the task as a **graph**: bounded **nodes** joined by **edges**, every node o
 
 ## Run folder
 
-All run files live in one run folder, by default `graph/` beside the deliverable.
+All run files live in one run folder, by default `graph-<ticket key>/` beside the deliverable, or `graph-<task slug>/` without a ticket. Each task gets its own folder.
 
 - `graph.md`: assumptions, nodes, edges, code nodes, learned rules.
 - `checks.md`: the **ledger**, one row per requirement: `node | requirement | verdict | evidence`. The verdict is pass, fail or unresolved. The evidence is a file path or literal check output; a row without evidence stays unresolved.
@@ -20,7 +20,10 @@ All run files live in one run folder, by default `graph/` beside the deliverable
 
 ## Steps
 
+0. **Run folder.** List the run folder before the first write. Stop at a `progress.md` or any file from another task: resume that run or pick a new folder.
+   Done when the folder is empty or its `progress.md` has been read.
 1. **Pre-flight.** Read six inputs from the invocation and the conversation: task, deliverable with output path, acceptance checks, sources, scope (paths nodes may write), run limit. Ask for every missing or vague one in one numbered list; give each a one-line reason (scope sets where nodes may write, checks set what gates test). If the user says to make assumptions, record each under `## Assumptions` in `graph.md`; an unclear scope means read-only.
+   Measure each option on the real system before you offer it: the question states what changes and the number that shows it.
    Done when every input except sources has a user value or a recorded assumption.
 2. **Baseline.** Run every acceptance check against the current state. Record each result in the ledger with node `baseline`.
    Done when every acceptance check has a baseline row.
