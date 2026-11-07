@@ -48,7 +48,7 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
 - Pick the executor by cost and write it next to each node in `graph.md`. A node whose reading or iteration the main session will not need again runs in a subagent; its reading and reasoning stay there. A cheap node that needs the main session's context, such as an edit at known lines of one file, runs in the main session.
 - **Browser node:** a subagent that owns the chrome-devtools browser; subagents reach the MCP browser like the main session. It runs the browser checks of the baseline and every browser gate, and returns ledger rows `check | value | screenshot path`.
 - Each file has one writer node. Any other exclusive resource (the browser, a dev-server port) has one owner node at a time.
-- A subagent prompt carries the node spec, its input paths, its check and its write scope. The subagent returns the output path, the verdict, and the evidence as command plus output.
+- A subagent prompt carries the node spec, its input paths, its check, its write scope and a scratch folder `/tmp/<run>/<node>/` for downloads, packed compilers and tree copies; the run folder keeps only results. The subagent returns the output path, the verdict, and the evidence as command plus output.
 
 ## Gates
 
