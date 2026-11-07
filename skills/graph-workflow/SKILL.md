@@ -35,7 +35,7 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
    3. Gate each output against its saved file.
    4. Send a failed output down its correction edge. Merge a passed output with code.
    5. Update the ledger and `progress.md`.
-5. **Deliver.** Return the paths to the deliverable, `graph.md`, `checks.md` and `progress.md`. Report what passed, what failed and what is unresolved, each with its evidence. On a limit or a blocker, list the exact nodes left. Write learned rules into `graph.md`.
+5. **Deliver.** Return the paths to the deliverable, `graph.md`, `checks.md` and `progress.md`. Report what passed, what failed and what is unresolved, each with its evidence. On a limit or a blocker, list the exact nodes left. Write learned rules along the learning edge.
    Done when `graph.md` lists exactly the nodes that ran and every checklist item has a ledger row.
 
 ## Nodes
@@ -55,7 +55,7 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
 ## Return paths
 
 - **Correction edge:** a failed gate sends the output back to the node that made it, with the reason, the evidence and the scope "fix this node only". After three failed attempts, mark the row unresolved and continue with the nodes that do not depend on it.
-- **Learning edge:** an accepted result writes the rule it proves under `## Learned rules` in `graph.md`, so the next run starts from it.
+- **Learning edge:** an accepted result writes the rule it proves into the rule file that already covers its area (the repo's agent rules, or a doc an always-loaded pointer reaches), so the next run starts from it. `## Learned rules` in `graph.md` keeps only rules about this run.
 
 ## Permissions
 
