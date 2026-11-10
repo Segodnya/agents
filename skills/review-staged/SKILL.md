@@ -55,7 +55,12 @@ stderr `matched <k> of <n>` goes into the report header verbatim.
 
 **Design** — `--design <dir>`: mockup screenshots the caller saved, `*.png` named by Figma node. Only D gets the path.
 
-**Checks** — `--checks <file>` → `python3 "SKILL_DIR/../mr-ready/scripts/run_checks.py" <file> RS_DIR`; else the repo's own typecheck / lint / tests, as binaries. Red is a finding for the header, not a failure. Pass the results to reviewers as one line, so they don't rerun them.
+**Checks** — the list goes to `RS_DIR/checks.txt`, one command per line, the format of the `run_checks.py` docstring:
+- `--checks <file>` → `cp` it.
+- Else the cache `~/.claude/checks/<origin>.txt` (`<origin>` = `basename -s .git "$(git remote get-url origin)"`, one name for every checkout), its `<ref>` replaced by the range's base: `HEAD` for `staged`/`worktree`, `HEAD~1` for `last`, `origin/<base>` for `branch`.
+- No cache → write it: typecheck, lint on the diff's files, related tests — binaries with the flags of the package's `scripts` entry; files as `{diff:<ref>:ts,tsx}`; a package in a subdirectory → `/usr/bin/env -C <dir> node_modules/.bin/<tool> … {diff:<ref>:ts,tsx:<dir>}`.
+
+Run from the repo root: `python3 "SKILL_DIR/../mr-ready/scripts/run_checks.py" RS_DIR/checks.txt RS_DIR`. Exit 127 on a cached line → the line is stale: fix it. A list you wrote or fixed that runs with no 127 → `mkdir -p ~/.claude/checks`, save it there with the ref written back as `<ref>`. Red is a finding for the header, not a failure. Pass the results to reviewers as one line, so they don't rerun them.
 
 ## 2. Review
 
@@ -67,7 +72,7 @@ B also gets the literal paths `RS_DIR/rules.md` and `RS_DIR/rule-files.txt`. Thr
 
 **A · Correctness & contracts** — null/undefined, off-by-one, races, unhandled rejections, type holes; security at trust boundaries; empty/huge/odd inputs; a changed signature or payload with a caller not updated (quote both); a key or name that must match another artifact (i18n catalog, config, route, schema, feature flag) changed on one side only, or hard-coded where the repo looks it up; tests that assert less than they claim.
 
-**B · Rules & smells** — read `rules.md` whole (by `===== RULE FILE` sections) and every file in `rule-files.txt`; cite a rule as `<file>: «<line verbatim>»`; list what you read in `rules_read`. Fowler smells (P2 unless they bite). A hunk the task does not need — imports or formatting rewritten by a bulk autofix, reordering in a file otherwise touched on one line — is a P2 quoted at the hunk: scope noise hides the real change. Up to 3 design notes, each a question on a named hunk: needed at all? / adds work that wasn't there? / simpler path?
+**B · Rules & smells** — read `rules.md` whole (by `===== RULE FILE` sections) and every file in `rule-files.txt`; cite a rule as `<file>: «<line verbatim>»`; list what you read in `rules_read`. Fowler smells (P2 unless they bite). One value read from two sources (`a || b`, `a ?? b`, a stored field plus a re-read of URL / store / DOM) is a finding: name both sources and the input where they disagree. A hunk the task does not need — imports or formatting rewritten by a bulk autofix, reordering in a file otherwise touched on one line — is a P2 quoted at the hunk: scope noise hides the real change. Up to 3 design notes, each a question on a named hunk: needed at all? / adds work that wasn't there? / simpler path?
 
 **C · Performance** — each P0/P1 names the delta (`O(n·m) → O(n+m)`, `+1 request → reuse`): nested lookups, work in loops, sequential awaits, redundant requests, work repeated per call / render / event that its inputs don't require.
 
@@ -95,6 +100,7 @@ python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" RS_DIR/threads.json 3
 Match by file + line ±10 or by the same claim. `🤖 self-review ·` roots are earlier mr-ready findings: judge them as a reviewer's threads. Each case, with one line why:
 
 - The answer really closes the finding → `✅ снято тредом T<n>`, the author's quote.
+- The answer accepts the cost instead of removing it («ожидаемо», «пусть так», a `S<n>` on the same claim), and the end user sees the cost — behaviour differs from the base branch → the finding stays at its priority, marked `⚠︎ риск принят автором в T<n>`, the quote. A design note on it becomes this finding. Accepting a user-visible regression is the human reviewer's call; this case wins over the `✅`/dropped cases below.
 - The answer misses the case — a «поправил» whose fix left this line as it was included → the finding stays.
 - A design note any thread already argued → dropped.
 - «Поправил в r<n>: …» — a fix already made. A P2 or design note that takes it back (restores what it removed, removes what it added, rewords the same comment again) → `↩︎ отменяет правку T<n>`, the fix quoted, counted like `✅ снято`. A P0/P1 the fix introduced → open as `регрессия правки T<n>`.
