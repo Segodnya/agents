@@ -36,6 +36,7 @@ Write your result with `Write` to `RS_DIR/axis-X.json`, then answer with one lin
     "severity": "P0|P1|P2",
     "file": "path/from/repo/root.ts", "line": 123,
     "claim": "one sentence: what is wrong and why it breaks",
+    "kind": "D only: absent | contradicted | unpromised | mockup",
     "rule_source": "universal | smell:<name> | <rule file>: «<rule line, verbatim>» | checklist: «<checklist line, verbatim>»",
     "pre_existing": false,
     "evidence": {"quote": "…", "entry": "…", "locations": ["a.ts:40", "a.ts:58"], "repro": "…"}

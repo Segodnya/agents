@@ -76,7 +76,7 @@ B also gets the literal paths `RS_DIR/rules.md` and `RS_DIR/rule-files.txt`. Thr
 
 **C · Performance** — each P0/P1 names the delta (`O(n·m) → O(n+m)`, `+1 request → reuse`): nested lookups, work in loops, sequential awaits, redundant requests, work repeated per call / render / event that its inputs don't require.
 
-**D · Spec** — checklist vs diff, three ways: promised but absent (P0 if «fixed», P1 if «touched»); promised but contradicted — the diff does otherwise than the item says (priority as absent: a defect in the code, not a checklist edit); in the diff but not promised — a behaviour change or a runtime step (restart, migration, cache purge) the tester won't know to check (P1). Done when every visible change in the diff (class, token, size, colour, text, markup element) and every runtime step maps to a checklist item or to one finding — one exhaustive pass, so the next round finds nothing new. An absence is quoted at the place it should be. With `--design`: `Read` every screenshot; each element the diff renders (control type, icon, colour, size, state) that differs from the mockup is a P1 finding quoted at the code line, the screenshot named in the claim.
+**D · Spec** — checklist vs diff, three ways, each finding's `kind` naming its way: `absent` — promised but absent (P0 if «fixed», P1 if «touched»); `contradicted` — the diff does otherwise than the item says (priority as absent: a defect in the code, not a checklist edit); `unpromised` — in the diff but not promised: a behaviour change or a runtime step (restart, migration, cache purge) the tester won't know to check (P1). Done when every visible change in the diff (class, token, size, colour, text, markup element) and every runtime step maps to a checklist item or to one finding — one exhaustive pass, so the next round finds nothing new. An absence is quoted at the place it should be. With `--design`: `Read` every screenshot; each element the diff renders (control type, icon, colour, size, state) that differs from the mockup is a P1 finding of `kind: mockup` quoted at the code line, the screenshot named in the claim.
 
 After the spawn message **end your turn with one plain line `жду оси: A B C D`** (this line overrides any rule against status-only turns) — not `SubagentHandback`, which would end your run with no report. Each reviewer's report wakes you: run the gate; exit 2 (`waiting_for`) → end the turn with `жду оси: <missing>`, nothing else.
 
@@ -111,8 +111,10 @@ Match by file + line ±10 or by the same claim. `🤖 self-review ·` roots are 
 
 Full text to `RS_DIR/review-<repo>-<iid|mode>.md`; the chat gets it minus P2 and ticket bodies.
 
+A finding with a `kind` goes to the 📋 block, every other one to P0–P2. Inside 📋 — one subsection per `kind` that has findings, each ordered P0 → P2, priority on the line. Ids stay the gate's `#n` in both places: `mr-ready` looks a finding up by it.
+
 ````markdown
-# Code Review — <N> находок (<M> снято тредами) · вне скоупа: <k> · MR !<iid>
+# Code Review — <N> находок (по чек-листу <j>; <M> снято тредами) · вне скоупа: <k> · MR !<iid>
 
 _Треды: <T> (открытых <O>)_ · _Чек-лист: принят | не предоставлен_ · _Applied rules: <matched k of n> · прочитаны: <rules_read basenames>_
 <_Discarded … line from gate.py_>
@@ -125,6 +127,10 @@ _Прочее: <anything off-pipeline>_
 
 ## P1 — Should fix · ## P2 — Nice to fix
 <same shape; P2 one line each>
+
+## 📋 Код ↔ чек-лист (<j>)
+### Обещано, в коде нет · ### Обещано, в коде иначе · ### В диффе, в чек-листе нет · ### Расходится с макетом
+#4 · P0 · `file.ts:40` — claim · _(source: <checklist line>)_
 
 ## 🎫 Вне скоупа — отдельным тикетом (<k>)
 ### TK1 · P1 · `file.ts:12` — **Тикет:** <imperative title> · **Почему не сейчас:** существовало до диффа

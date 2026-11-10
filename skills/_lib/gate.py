@@ -119,6 +119,8 @@ def merge(kept):
         if c["claim"] not in twin["claim"]:
             twin["claim"] += " / " + c["claim"]
         twin["axes"] += c["axes"]
+        # the report files a checklist mismatch by kind: keep it when D merges into another axis's twin
+        twin["kind"] = twin.get("kind") or c.get("kind")
         twin["pre_existing"] = twin.get("pre_existing") and c.get("pre_existing")
         locs = twin["evidence"].get("locations") or []
         twin["evidence"]["locations"] = list(dict.fromkeys(
