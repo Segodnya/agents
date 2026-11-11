@@ -6,7 +6,8 @@
                           --new checklist.md [--dry-run]
 
 `get` without --comment picks it: the latest-updated comment holding «Кейсы тестирования» in the task K
-blocks (K itself when there is no such link). `get` renders paragraph / heading / ordered+bullet lists (nested) / text with marks code, strong, em,
+blocks (K itself when there is no such link). `get` renders paragraph / heading / ordered+bullet lists (nested, with
+paragraphs after a nested list; `put` won't edit such an item) / text with marks code, strong, em,
 link / hardBreak / inlineCard; decoration marks (textColor, backgroundColor, underline) carry no checklist
 meaning and render as plain text; any other node or mark → exit 1 naming its type (nothing else is dropped silently).
 `put` diffs list items of --old vs --new: changed item → its text nodes are rewritten, added item → a new
@@ -103,31 +104,44 @@ def para(node):
 
 
 def items_of(lst, depth=0, up=None, out=None):
-    """Flat list of list items in document order: {depth, li, parent, up, p}."""
+    """Flat list of list items in document order: {depth, li, parent, up, p, tails}.
+    `tails` — paragraphs that follow the item's nested lists (a closing remark under the item)."""
     out = [] if out is None else out
     for li in lst["content"]:
         if li["type"] != "listItem":
             die(f"unsupported ADF node in list: {li['type']}")
-        paras = [c for c in li["content"] if c["type"] == "paragraph"]
-        if len(paras) != 1 or li["content"][0]["type"] != "paragraph":
-            die("unsupported listItem layout (needs exactly one leading paragraph, then nested lists)")
-        rec = {"depth": depth, "li": li, "parent": lst, "up": up, "p": paras[0]}
+        if not li["content"] or li["content"][0]["type"] != "paragraph":
+            die("unsupported listItem layout (needs a leading paragraph)")
+        rec = {"depth": depth, "li": li, "parent": lst, "up": up, "p": li["content"][0], "tails": []}
         out.append(rec)
         for c in li["content"][1:]:
-            if c["type"] not in LISTS:
+            if c["type"] == "paragraph":
+                rec["tails"].append(c)
+            elif c["type"] in LISTS:
+                items_of(c, depth + 1, rec, out)
+            else:
                 die(f"unsupported ADF node in listItem: {c['type']}")
-            items_of(c, depth + 1, rec, out)
     return out
+
+
+def item_text(r):
+    """The item as parse_md reads it back: tails are continuation lines of the item itself."""
+    return "\n".join(para(p) for p in [r["p"], *r["tails"]])
 
 
 def render_list(lst, depth=0):
     lines = []
     for n, li in enumerate(lst["content"]):
         marker = f"{lst.get('attrs', {}).get('order', 1) + n}." if lst["type"] == "orderedList" else "-"
-        pad = " " * (len(marker) + 1)
-        lines.append("   " * depth + marker + " " + para(li["content"][0]).replace("\n", "\n" + "   " * depth + pad))
+        indent = "   " * depth + " " * (len(marker) + 1)
+        lines.append("   " * depth + marker + " " + para(li["content"][0]).replace("\n", "\n" + indent))
         for c in li["content"][1:]:
-            lines += render_list(c, depth + 1)
+            if c["type"] == "paragraph":
+                # left of the nested markers ("   " per level), so parse_md hands it to this item, not to its last child
+                tail = indent[:len("   " * (depth + 1))]
+                lines += ["", tail + para(c).replace("\n", "\n" + tail)]
+            else:
+                lines += render_list(c, depth + 1)
     return lines
 
 
@@ -150,18 +164,21 @@ def to_md(adf):
 # ---- markdown -> items ----
 
 def parse_md(md):
-    """→ (items [(depth, text)], outside lines). Depth by indent stack; non-item indented lines continue the item."""
+    """→ (items [(depth, text)], outside lines). Depth by indent stack; a non-item indented line continues
+    the deepest open item whose marker sits left of it — so a paragraph after a nested list goes to its parent."""
     items, outside, stack = [], [], []
     for line in md.splitlines():
         m = ITEM.match(line)
         if m:
             w = len(m.group(1))
-            while stack and stack[-1] >= w:
+            while stack and stack[-1][0] >= w:
                 stack.pop()
-            stack.append(w)
+            stack.append((w, len(items)))
             items.append([len(stack) - 1, m.group(3).rstrip()])
-        elif line.strip() and line[0] in " \t" and items:
-            items[-1][1] += "\n" + line.strip()
+        elif line.strip() and line[0] in " \t" and stack:
+            c = len(line) - len(line.lstrip())
+            owner = next((k for w, k in reversed(stack) if w < c), stack[0][1])
+            items[owner][1] += "\n" + line.strip()
         elif line.strip():
             outside.append(line.strip())
             stack = []
@@ -205,7 +222,7 @@ def plan_patch(adf, old_md, new_md):
     recs = [r for n in adf["content"] if n["type"] in LISTS for r in items_of(n)]
     old_items, old_out = parse_md(old_md)
     new_items, new_out = parse_md(new_md)
-    if old_items != [(r["depth"], para(r["p"])) for r in recs]:
+    if old_items != [(r["depth"], item_text(r)) for r in recs]:
         die("--old does not match the ADF (list items differ) — re-run `get`")
     if old_out != new_out:
         die("changes outside list items are not supported")
@@ -273,6 +290,8 @@ def kept(old, new):
 def edit_item(r, d, text):
     if d != r["depth"]:
         die(f"item depth changed: {text[:60]!r}")
+    if r["tails"]:
+        die(f"item has a paragraph after its nested list, edit by hand: {para(r['p'])[:60]!r}")
     if any(c["type"] != "text" for c in r["p"].get("content", [])):
         die(f"item has non-text nodes (hardBreak/card), edit by hand: {para(r['p'])[:60]!r}")
     if any(m["type"] in DECOR for c in r["p"]["content"] for m in c.get("marks", [])):
