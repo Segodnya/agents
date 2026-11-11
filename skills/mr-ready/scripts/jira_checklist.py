@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Jira comment (ADF) <-> markdown for the deploy checklist, and a pointwise patch back.
 
-    jira_checklist.py get --key K --comment ID --out-md checklist.md --out-adf checklist.adf.json
+    jira_checklist.py get --key K [--comment ID] --out-md checklist.md [--out-adf checklist.adf.json]
     jira_checklist.py put --key K --comment ID --adf checklist.adf.json --old checklist.orig.md \\
                           --new checklist.md [--dry-run]
 
-`get` renders paragraph / heading / ordered+bullet lists (nested) / text with marks code, strong, em,
+`get` without --comment picks it: the latest-updated comment holding «Кейсы тестирования» in the task K
+blocks (K itself when there is no such link). `get` renders paragraph / heading / ordered+bullet lists (nested) / text with marks code, strong, em,
 link / hardBreak / inlineCard; decoration marks (textColor, backgroundColor, underline) carry no checklist
 meaning and render as plain text; any other node or mark → exit 1 naming its type (nothing else is dropped silently).
 `put` diffs list items of --old vs --new: changed item → its text nodes are rewritten, added item → a new
@@ -47,6 +48,28 @@ def die(msg):
 
 def call(key, cid, method="GET", body=None):
     return request(method, f"/rest/api/3/issue/{key}/comment/{cid}", {"body": body} if body else None)["body"]
+
+
+CHECKLIST_MARK = "Кейсы тестирования"
+
+
+def adf_text(n):
+    if isinstance(n, dict):
+        return n.get("text", "") + adf_text(n.get("content", []))
+    return "".join(adf_text(c) for c in n) if isinstance(n, list) else ""
+
+
+def resolve(key):
+    """→ (task, comment). An audit ticket's description is a snapshot of the checklist comment in the task
+    it blocks, and the author keeps editing that comment. No «Блокирует» link → the ticket itself."""
+    links = request("GET", f"/rest/api/3/issue/{key}?fields=issuelinks")["fields"]["issuelinks"]
+    task = next((l["outwardIssue"]["key"] for l in links
+                 if "outwardIssue" in l and l["type"]["outward"] == "Блокирует"), key)
+    comments = request("GET", f"/rest/api/3/issue/{task}/comment?maxResults=100")["comments"]
+    hits = [c for c in comments if CHECKLIST_MARK in adf_text(c["body"])]
+    if not hits:
+        die(f"{task}: no comment holds «{CHECKLIST_MARK}»")
+    return task, max(hits, key=lambda c: c["updated"])
 
 
 # ---- ADF -> markdown ----
@@ -294,7 +317,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("cmd", choices=["get", "put"])
     p.add_argument("--key", required=True)
-    p.add_argument("--comment", required=True)
+    p.add_argument("--comment")
     p.add_argument("--out-md")
     p.add_argument("--out-adf")
     p.add_argument("--adf")
@@ -303,16 +326,22 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args()
     if a.cmd == "get":
-        if not (a.out_md and a.out_adf):
-            p.error("get needs --out-md and --out-adf")
-        adf = call(a.key, a.comment)
+        if not a.out_md:
+            p.error("get needs --out-md")
+        if a.comment:
+            task, cid, updated, adf = a.key, a.comment, None, call(a.key, a.comment)
+        else:
+            task, c = resolve(a.key)
+            cid, updated, adf = c["id"], c["updated"][:16].replace("T", " "), c["body"]
         md = to_md(adf)
         open(a.out_md, "w", encoding="utf-8").write(md)
-        json.dump(adf, open(a.out_adf, "w", encoding="utf-8"), ensure_ascii=False)
-        print(json.dumps({"ok": True, "md": a.out_md, "adf": a.out_adf, "lines": md.count("\n")}))
+        if a.out_adf:
+            json.dump(adf, open(a.out_adf, "w", encoding="utf-8"), ensure_ascii=False)
+        print(json.dumps({"ok": True, "task": task, "comment": cid, "updated": updated,
+                          "md": a.out_md, "adf": a.out_adf, "lines": md.count("\n")}, ensure_ascii=False))
         return
-    if not (a.adf and a.old and a.new):
-        p.error("put needs --adf, --old and --new")
+    if not (a.comment and a.adf and a.old and a.new):
+        p.error("put needs --comment, --adf, --old and --new")
     saved = json.load(open(a.adf, encoding="utf-8"))
     fresh = call(a.key, a.comment)
     if fresh != saved:

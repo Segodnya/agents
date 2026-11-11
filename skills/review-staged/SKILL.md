@@ -51,7 +51,7 @@ stderr `matched <k> of <n>` goes into the report header verbatim.
 `python3 "SKILL_DIR/../audit-reply/scripts/fetch_mr.py" --url "<MR>" --all > RS_DIR/threads.json` (`--all`: resolved threads are exactly «уже обсудили»).
 `--threads <file>` — the caller already holds the threads in the same shape: `cp` it to `RS_DIR/threads.json`, no GitLab call.
 
-**Checklist** — `--checklist <file>` → `cp` to `RS_DIR/checklist.md`; else the user pastes it and you save it verbatim; `--no-spec` → none. Reviewers read the file; a checklist retold in your words is how a reviewer ends up quoting a rule nobody wrote.
+**Checklist** — `--checklist <file>` → `cp` to `RS_DIR/checklist.md`; a Jira key or URL → `python3 "SKILL_DIR/../mr-ready/scripts/jira_checklist.py" get --key <KEY> --out-md RS_DIR/checklist.md` (a `focusedCommentId` in the URL → add `--comment <id>`), exit 1 → ask; else the user pastes it and you save it verbatim; `--no-spec` → none. Reviewers read the file; a checklist retold in your words is how a reviewer ends up quoting a rule nobody wrote.
 
 **Design** — `--design <dir>`: mockup screenshots the caller saved, `*.png` named by Figma node. Only D gets the path.
 
@@ -116,7 +116,7 @@ A finding with a `kind` goes to the 📋 block, every other one to P0–P2. Insi
 ````markdown
 # Code Review — <N> находок (по чек-листу <j>; <M> снято тредами) · вне скоупа: <k> · MR !<iid>
 
-_Треды: <T> (открытых <O>)_ · _Чек-лист: принят | не предоставлен_ · _Applied rules: <matched k of n> · прочитаны: <rules_read basenames>_
+_Треды: <T> (открытых <O>)_ · _Чек-лист: <task> #<comment>, updated <updated> (из JSON `get`) | принят из файла | не предоставлен_ · _Applied rules: <matched k of n> · прочитаны: <rules_read basenames>_
 <_Discarded … line from gate.py_>
 _Checks: <cmd → exit>; … | none_
 _Прочее: <anything off-pipeline>_

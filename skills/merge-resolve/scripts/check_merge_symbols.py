@@ -39,6 +39,7 @@ DEFS = [
 KEYWORDS = {
     'if', 'for', 'while', 'switch', 'catch', 'return', 'function', 'do', 'else',
     'try', 'typeof', 'new', 'delete', 'await', 'yield', 'constructor', 'super',
+    'foreach', 'elseif',
 }
 
 MARK_START, MARK_BASE, MARK_MID, MARK_END = '<<<<<<<', '|||||||', '=======', '>>>>>>>'
@@ -117,20 +118,25 @@ def main():
         except OSError:
             continue
 
-        # Дубли ищем ВНЕ конфликтных зон: внутри маркеров две копии — норма,
-        # это и есть неразрешённый конфликт. Опасен дубль, который авто-мерж
-        # вставил в неконфликтную зону.
-        dups = [(n, c) for n, c in Counter(defs_in(work, True)).items() if c > 1]
-
-        # Пропажа: символ был на стороне, но в результате его нет нигде.
         present = set(defs_in(work, False))
         lost = {}
+        side_max = Counter()
         for slot, label in sides:
             side = git('show', f'{slot}{f}')
             if not side:
                 continue
-            for n in set(defs_in(side.splitlines(True), False)) - present:
+            side_defs = defs_in(side.splitlines(True), False)
+            side_max |= Counter(side_defs)
+            # Пропажа: символ был на стороне, но в результате его нет нигде.
+            for n in set(side_defs) - present:
                 lost.setdefault(n, set()).add(label)
+
+        # Дубли ищем ВНЕ конфликтных зон: внутри маркеров две копии — норма,
+        # это и есть неразрешённый конфликт. Опасен дубль, который авто-мерж
+        # вставил в неконфликтную зону. Дубль, который уже был на одной из
+        # сторон (фикстуры, перегрузки), мерж не вносил — его не показываем.
+        dups = [(n, c) for n, c in Counter(defs_in(work, True)).items()
+                if c > 1 and c > side_max[n]]
 
         if not dups and not lost:
             continue
