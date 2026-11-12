@@ -12,6 +12,7 @@ Run the task as a **graph**: bounded **nodes** joined by **edges**, every node o
 
 All run files live in one run folder, by default `graph-<ticket key>/` beside the deliverable, or `graph-<task slug>/` without a ticket. Each task gets its own folder.
 
+- `spec.md`: the task, `## Design` (each decision with its reason), `## Checklist` (the completion checklist). It is the user's contract (see Gates).
 - `graph.md`: assumptions, nodes, edges, code nodes, learned rules.
 - `checks.md`: the **ledger**, one row per requirement: `node | requirement | verdict | evidence`. The verdict is pass, fail or unresolved. The evidence is a file path or literal check output; a row without evidence stays unresolved.
 - `progress.md`: nodes done, running and blocked; current output paths; decisions that changed `graph.md` and why; open issues; the next ready node.
@@ -20,14 +21,14 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
 
 ## Steps
 
-0. **Run folder.** List the run folder before the first write. On a resume request, read `graph.md` and `progress.md`, then go to step 4 at the recorded next node. Otherwise stop at a `progress.md` or any file from another task: resume that run or pick a new folder.
+0. **Run folder.** List the run folder before the first write. On a resume request, read `spec.md`, `graph.md` and `progress.md`, then go to step 4 at the recorded next node. Otherwise stop at a `progress.md` or any file from another task: resume that run or pick a new folder.
    Done when the folder is empty or its `progress.md` has been read.
-1. **Pre-flight.** Dispatch a `recon` subagent for the reading: ticket, attachments, Figma, code. Its report has a fixed format: a draft of the six inputs, candidate nodes with `file:line`, and open questions, each option measured on the real system. The six inputs are task, deliverable with output path, acceptance checks, sources, scope (paths nodes may write), run limit. Fill them from the invocation, the conversation and the report. Ask for every missing or vague one in one numbered list; give each a one-line reason (scope sets where nodes may write, checks set what gates test). If the user says to make assumptions, record each under `## Assumptions` in `graph.md`; an unclear scope means read-only.
+1. **Pre-flight.** Dispatch a `recon` subagent for the reading: ticket, attachments, Figma, code. Its report has a fixed format: a draft of the six inputs, candidate nodes with `file:line`, and open questions, each option measured on the real system. The six inputs are task, deliverable with output path, acceptance checks, sources, scope (paths nodes may write), run limit. Fill them from the invocation, the conversation and the report. Ask for every missing or vague one in one numbered list; give each a one-line reason (scope sets where nodes may write, checks set what gates test). When the task itself is **underspecified** (a behaviour no source describes), **ambiguous** (two readings lead to different code) or **contradictory** (two sources disagree), invoke `Skill mattpocock-skills:grilling` instead of the list; the missing inputs join its first round. Write every decision the user settles, in the list or in grilling, with its reason, under `## Design` in `spec.md`. If the user says to make assumptions, record each under `## Assumptions` in `graph.md`; an unclear scope means read-only.
    Offer an option only with its measured number: the question states what changes and the number that shows it.
-   Done when every input except sources has a user value or a recorded assumption.
+   Done when every input except sources has a user value or a recorded assumption, and every settled decision is in `spec.md`.
 2. **Baseline.** Run every acceptance check against the current state. Record each result in the ledger with node `baseline`.
    Done when every acceptance check has a baseline row.
-3. **Split.** Write nodes, edges and code nodes into `graph.md` by the node rules below. Write the completion checklist from the acceptance checks; each item names its observable evidence. Check the active permissions against the scope (see Permissions). Show the graph and the checklist, then stop for approval. After approval, write `progress.md` with the next ready node and hand off (see Run folder).
+3. **Split.** Write nodes, edges and code nodes into `graph.md` by the node rules below. Write the completion checklist from the acceptance checks into `spec.md`; each item names its observable evidence. Check the active permissions against the scope (see Permissions). Show the graph and the checklist, then stop for approval. After approval, write `progress.md` with the next ready node and hand off (see Run folder).
    Done when the user approves and `progress.md` names the next ready node.
 4. **Execute.** Repeat until the checklist is complete, a blocker stops all ready nodes, or the run limit is reached:
    1. Pick the ready nodes: every input exists.
@@ -35,7 +36,12 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
    3. Gate each output against its saved file.
    4. Send a failed output down its correction edge. Merge a passed output with code.
    5. Update the ledger and `progress.md`.
-5. **Deliver.** Return the paths to the deliverable, `graph.md`, `checks.md` and `progress.md`. Report what passed, what failed and what is unresolved, each with its evidence. On a limit or a blocker, list the exact nodes left. Write learned rules along the learning edge. Hand off to the follow-up skills: commit message, deploy checklist, `/simplify`, retro.
+5. **Review.** Skip when the nodes wrote no files in a git repo. Otherwise run rounds `r1` to `r3`:
+   1. Stage the files the nodes wrote: `git add -- <paths>`, the paths taken from the writer nodes in `graph.md`, the run folder excluded. Before `r1`, `git diff --staged --name-only` names a file outside that list → ask the user: the staged review would include it.
+   2. Dispatch a `review` subagent: «Invoke `Skill segodnya-agents:review-staged` with `staged --checklist <run>/spec.md --rs-dir /tmp/<run>/review-r<n>` and `--mr <url>` if the inputs name an MR, else `--no-mr`. Run the whole procedure, four axes and the gate. Ask nothing: write `MISSING: <what>`. Reply with only the report path, one line per open entry of `gate.json` (not `✅ снято тредом`, not `↩︎ отменяет правку`) `<id> · file:line · P? · kind · claim`, and `open: <number>`.» No `gate.json` in the `--rs-dir` → one `SendMessage` to the same reviewer.
+   3. Write each finding as a ledger row with node `review-r<n>`. Group the findings by the node that wrote their file and send each group down that node's correction edge, all groups in one message; a review fix counts toward the node's three attempts. Gate each fixed output as in step 4. A finding of `kind: unpromised`, or one that disputes `## Design`, is an open issue for the user.
+   Done when a round returns no open finding except the user's open issues, or after `r3`; the findings still open stay unresolved.
+6. **Deliver.** Return the paths to the deliverable, `spec.md`, `graph.md`, `checks.md` and `progress.md`. Report what passed, what failed and what is unresolved, each with its evidence. On a limit or a blocker, list the exact nodes left. Write learned rules along the learning edge. Hand off to the follow-up skills: commit message, deploy checklist, `/simplify`, retro.
    Done when `graph.md` lists exactly the nodes that ran and every checklist item has a ledger row.
 
 ## Nodes
@@ -53,7 +59,7 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
 ## Gates
 
 - Weigh evidence in this order: deterministic checks, the node's report, model confidence.
-- A gate's check stays fixed for the whole run. A check that proves wrong goes to the user as an open issue; only the user changes it.
+- A gate's check and `spec.md` stay fixed for the whole run. A check that proves wrong goes to the user as an open issue; only the user changes them.
 
 ## Return paths
 
