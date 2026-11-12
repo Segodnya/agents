@@ -59,6 +59,7 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
 ## Gates
 
 - Weigh evidence in this order: deterministic checks, the node's report, model confidence.
+- A resource check (peak memory, wall time) compares medians of at least 3 runs per side; one run against one run measures noise.
 - A gate's check and `spec.md` stay fixed for the whole run. A check that proves wrong goes to the user as an open issue; only the user changes them.
 
 ## Return paths
