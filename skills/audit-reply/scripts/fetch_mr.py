@@ -11,13 +11,39 @@ Usage:
 """
 
 import argparse
+import base64
 import json
 import os
 import sys
 from datetime import date
+from urllib.parse import quote
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../_lib"))
 from glab_mr import SELF_REVIEW, api, discussions as fetch_discussions, is_bot, mr_endpoint, parse_url  # noqa: E402
+
+
+def code_ref(pos):
+    """Where the thread's line lives: an added or kept line in the thread's head, a removed one in its base."""
+    if pos.get("new_line"):
+        return {"sha": pos.get("head_sha"), "path": pos.get("new_path"), "line": pos["new_line"]}
+    if pos.get("old_line"):
+        return {"sha": pos.get("base_sha"), "path": pos.get("old_path"), "line": pos["old_line"]}
+    return None
+
+
+def code_at(host, project_path, ref, files):
+    """The thread's line as it was at the thread's own revision. That revision is often missing from the
+    local repo (never fetched, or force-pushed away), and a line number alone can't be matched to today's code."""
+    if not (ref and ref["sha"] and ref["path"]):
+        return None
+    key = (ref["sha"], ref["path"])
+    if key not in files:
+        f = api(host, "GET", f"projects/{quote(project_path, safe='')}/repository/files/"
+                f"{quote(ref['path'], safe='')}?ref={ref['sha']}", soft=True)
+        files[key] = base64.b64decode(f["content"]).decode("utf-8", "replace").splitlines() if "content" in f else None
+    lines = files[key]
+    return lines[ref["line"] - 1].strip() if lines and 0 < ref["line"] <= len(lines) else None
+
 
 def thread_is_open(notes):
     """A thread needs attention if it has a resolvable note that is not resolved."""
@@ -91,6 +117,7 @@ def main():
             "new_line": pos.get("new_line"),
             "old_line": pos.get("old_line"),
             "is_general": not bool(pos),
+            "code_ref": code_ref(pos),
             "reply_count": len(replies),
             "replies": [
                 {
@@ -114,6 +141,10 @@ def main():
         kept = [t for t in threads if (t["created_at"] or "") >= since]
         filtered_by_date = len(threads) - len(kept)
         threads = kept
+
+    files = {}
+    for t in threads:
+        t["code"] = code_at(host, project_path, t["code_ref"], files)
 
     output = {
         "host": host,

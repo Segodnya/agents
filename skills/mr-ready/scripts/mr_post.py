@@ -51,6 +51,13 @@ def old_line_of(base, head, path, line):
     return line - delta
 
 
+def matches_head(head, path):
+    """A review reads the index or the working tree: its line numbers point at the same code in the MR
+    only when one of these copies equals the MR head."""
+    return any(state.git(*args, head, "--", path, check=False).returncode == 0
+               for args in (("diff", "--quiet", "--cached"), ("diff", "--quiet")))
+
+
 def unpositioned(host, proj, iid, body):
     created = api(host, "POST", f"{mr_endpoint(proj, iid)}/discussions", {"body": body})
     disc_id = created.get("id")
@@ -64,6 +71,10 @@ def cmd_thread(a, host, proj, iid, refs=None):
     if not (a.file and a.line):
         return unpositioned(host, proj, iid, a.body)
     refs = refs or api(host, "GET", mr_endpoint(proj, iid))["diff_refs"]
+    if not matches_head(refs["head_sha"], a.file):
+        sys.exit(f"{a.file}: neither the index nor the working tree equals MR head {refs['head_sha'][:8]} "
+                 f"(or the ref is not fetched) — line {a.line} may point at other code; "
+                 f"`git fetch origin {refs['head_sha']}` and review that state")
     position = {
         "position_type": "text",
         "base_sha": refs["base_sha"], "head_sha": refs["head_sha"], "start_sha": refs["start_sha"],

@@ -7,7 +7,7 @@
 
 `get` without --comment picks it: the latest-updated comment holding «Кейсы тестирования» in the task K
 blocks (K itself when there is no such link). `get` renders paragraph / heading / ordered+bullet lists (nested, with
-paragraphs after a nested list; `put` won't edit such an item) / text with marks code, strong, em,
+paragraphs after a nested list; `put` won't edit such an item; an item holding only lists renders as those lists) / text with marks code, strong, em,
 link / hardBreak / inlineCard; decoration marks (textColor, backgroundColor, underline) carry no checklist
 meaning and render as plain text; any other node or mark → exit 1 naming its type (nothing else is dropped silently).
 `put` diffs list items of --old vs --new: changed item → its text nodes are rewritten, added item → a new
@@ -103,6 +103,12 @@ def para(node):
     return "".join(inline(c) for c in node.get("content", []))
 
 
+def is_wrapper(li):
+    """The Jira editor nests a list straight into an item («1. * …»): the item has no text of its own,
+    so its lists stand in its place, at its depth."""
+    return bool(li["content"]) and all(c["type"] in LISTS for c in li["content"])
+
+
 def items_of(lst, depth=0, up=None, out=None):
     """Flat list of list items in document order: {depth, li, parent, up, p, tails}.
     `tails` — paragraphs that follow the item's nested lists (a closing remark under the item)."""
@@ -110,6 +116,10 @@ def items_of(lst, depth=0, up=None, out=None):
     for li in lst["content"]:
         if li["type"] != "listItem":
             die(f"unsupported ADF node in list: {li['type']}")
+        if is_wrapper(li):
+            for c in li["content"]:
+                items_of(c, depth, up, out)
+            continue
         if not li["content"] or li["content"][0]["type"] != "paragraph":
             die("unsupported listItem layout (needs a leading paragraph)")
         rec = {"depth": depth, "li": li, "parent": lst, "up": up, "p": li["content"][0], "tails": []}
@@ -132,7 +142,11 @@ def item_text(r):
 def render_list(lst, depth=0):
     lines = []
     for n, li in enumerate(lst["content"]):
-        marker = f"{lst.get('attrs', {}).get('order', 1) + n}." if lst["type"] == "orderedList" else "-"
+        if is_wrapper(li):
+            for c in li["content"]:
+                lines += render_list(c, depth)
+            continue
+        marker =f"{lst.get('attrs', {}).get('order', 1) + n}." if lst["type"] == "orderedList" else "-"
         indent = "   " * depth + " " * (len(marker) + 1)
         lines.append("   " * depth + marker + " " + para(li["content"][0]).replace("\n", "\n" + indent))
         for c in li["content"][1:]:

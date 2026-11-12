@@ -60,6 +60,9 @@ def main():
             continue
         t = threads[i - 1]
         print(f"=== T{i} id={t.get('discussion_id')} · {where(t)} · @{t['author']} · {state(t)} · {t['created_at']}")
+        ref = t.get("code_ref")
+        if ref:
+            print(f"code @{(ref['sha'] or '')[:8]} L{ref['line']}: {t.get('code') or '(unavailable)'}")
         print(t.get("body", ""))
         for r in t.get("replies", []):
             print(f"--- reply @{r['author']} · {r['created_at']}")

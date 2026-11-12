@@ -197,6 +197,11 @@ def main():
         return os.path.realpath(os.path.expanduser(f.split(" (")[0].strip()))
     read_b = {norm(f) for f in rules_read.get("B") or []}
     rules_missing = [f for f in expected if norm(f) not in read_b] if "B" in rules_read else []
+    # rules.md bundles several rule files: a skipped section leaves no trace unless each is checked by name
+    sections = re.findall(r"^===== RULE FILE: (.+?) — matched ", read(f"{rs}/rules.md") or "", re.M)
+    listed_b = [f.split(" (")[0].strip() for f in rules_read.get("B") or []]
+    if "B" in rules_read:
+        rules_missing += [f"rules.md: {s}" for s in sections if not any(e.endswith(s) for e in listed_b)]
     # an axis that read only the last commits looks complete; its own file list shows the gap
     files_missing = {}
     if a.require_coverage:

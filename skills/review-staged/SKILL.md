@@ -97,7 +97,7 @@ python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" RS_DIR/threads.json  
 python3 "SKILL_DIR/../audit-reply/scripts/read_threads.py" RS_DIR/threads.json 3 7 12   # bodies
 ```
 
-Match by file + line ±10 or by the same claim. `🤖 self-review ·` roots are earlier mr-ready findings: judge them as a reviewer's threads. Each case, with one line why:
+Match by the same code — the `code @<sha> L<n>:` line under a thread's header is its code at its own revision, compare it with the finding's quote — or by the same claim; line numbers drift between revisions. `🤖 self-review ·` roots are earlier mr-ready findings: judge them as a reviewer's threads. Each case, with one line why:
 
 - The answer really closes the finding → `✅ снято тредом T<n>`, the author's quote.
 - The answer accepts the cost instead of removing it («ожидаемо», «пусть так», a `S<n>` on the same claim), and the end user sees the cost — behaviour differs from the base branch → the finding stays at its priority, marked `⚠︎ риск принят автором в T<n>`, the quote. A design note on it becomes this finding. Accepting a user-visible regression is the human reviewer's call; this case wins over the `✅`/dropped cases below.
