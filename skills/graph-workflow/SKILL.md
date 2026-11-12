@@ -10,7 +10,7 @@ Run the task as a **graph**: bounded **nodes** joined by **edges**, every node o
 
 ## Run folder
 
-All run files live in one run folder, by default `graph-<ticket key>/` beside the deliverable, or `graph-<task slug>/` without a ticket. Each task gets its own folder.
+All run files live in one run folder, by default `graph-<ticket key>/` beside the deliverable, or `graph-<task slug>/` without a ticket. Each task gets its own folder. Its first file is `.gitignore` holding `*`, so the run folder stays out of the user's commit.
 
 - `spec.md`: the task, `## Design` (each decision with its reason), `## Checklist` (the completion checklist). It is the user's contract (see Gates).
 - `graph.md`: assumptions, nodes, edges, code nodes, learned rules.
@@ -71,5 +71,5 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
 
 - Keep writes inside the scope. A prompt is not a boundary: where a stray write is costly, enforce the scope with permission rules or a sandbox.
 - Ask the user before publishing, sending or spending.
-- Before a risky merge, copy the affected files into `backup/` in the run folder.
+- Before a risky merge, copy the affected files into `/tmp/<run>/backup/`: a copy inside the run folder rides into the user's commit.
 - If a required tool is missing, record the blocker in `progress.md` and finish the nodes that do not need it.
