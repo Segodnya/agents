@@ -10,7 +10,7 @@ Run the task as a **graph**: bounded **nodes** joined by **edges**, every node o
 
 ## Run folder
 
-All run files live in one run folder, by default `graph-<ticket key>/` beside the deliverable, or `graph-<task slug>/` without a ticket. Each task gets its own folder. Its first file is `.gitignore` holding `*`, so the run folder stays out of the user's commit.
+All run files live in one run folder, by default `graph-<ticket key>/` beside the deliverable, or `graph-<task slug>/` without a ticket. Each task gets its own folder. Its first file is `.gitignore` holding `*`, so the run folder stays out of the user's commit. A repo format check that globs every file (`prettier --check '**/*.md'`) still reads it: add `graph-*/` to that tool's ignore file.
 
 - `spec.md`: the task, `## Design` (each decision with its reason), `## Checklist` (the completion checklist). It is the user's contract (see Gates).
 - `graph.md`: assumptions, nodes, edges, code nodes, learned rules.
@@ -26,14 +26,14 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
 1. **Pre-flight.** Dispatch a `recon` subagent for the reading: ticket, attachments, Figma, code. Its report has a fixed format: a draft of the six inputs, candidate nodes with `file:line`, and open questions, each option measured on the real system. The six inputs are task, deliverable with output path, acceptance checks, sources, scope (paths nodes may write), run limit. Fill them from the invocation, the conversation and the report. Ask for every missing or vague one in one numbered list; give each a one-line reason (scope sets where nodes may write, checks set what gates test). When the task itself is **underspecified** (a behaviour no source describes), **ambiguous** (two readings lead to different code) or **contradictory** (two sources disagree), invoke `Skill mattpocock-skills:grilling` instead of the list; the missing inputs join its first round. Write every decision the user settles, in the list or in grilling, with its reason, under `## Design` in `spec.md`. If the user says to make assumptions, record each under `## Assumptions` in `graph.md`; an unclear scope means read-only.
    Offer an option only with its measured number: the question states what changes and the number that shows it.
    Done when every input except sources has a user value or a recorded assumption, and every settled decision is in `spec.md`.
-2. **Baseline.** Run every acceptance check against the current state. Record each result in the ledger with node `baseline`.
-   Done when every acceptance check has a baseline row.
+2. **Baseline.** Run every acceptance check against the current state. Record each result in the ledger with node `baseline`. Classify every hit of a failing check: a hit that is not the defect makes the check wrong, so fix the check before step 3.
+   Done when every acceptance check has a baseline row and every failing row has only true hits.
 3. **Split.** Write nodes, edges and code nodes into `graph.md` by the node rules below. Write the completion checklist from the acceptance checks into `spec.md`; each item names its observable evidence. Check the active permissions against the scope (see Permissions). Show the graph and the checklist, then stop for approval. After approval, write `progress.md` with the next ready node and hand off (see Run folder).
    Done when the user approves and `progress.md` names the next ready node.
 4. **Execute.** Repeat until the checklist is complete, a blocker stops all ready nodes, or the run limit is reached:
    1. Pick the ready nodes: every input exists.
    2. Dispatch independent subagent nodes in parallel in one message. Run code nodes as scripts.
-   3. Gate each output against its saved file.
+   3. Gate each output against its saved file. Stop an accepted node's agent if it is still running (`TaskStop`).
    4. Send a failed output down its correction edge. Merge a passed output with code.
    5. Update the ledger and `progress.md`.
 5. **Review.** Skip when the nodes wrote no files in a git repo. Otherwise run rounds `r1` to `r3`:
@@ -51,10 +51,12 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
 - Draw an edge only when a node consumes another node's output. Nodes are independent when no path joins them and they share no exclusive resource.
 - A step with exactly one correct answer (merge, sort, dedupe, compare, count) is a **code node**: a script listed in `graph.md`.
 - A script that runs twice is a file in the run folder, called by path: `python3 <file>`, `evaluate_script` with `sourcePath`.
+- A code node that measures the diff compares against `HEAD` (`git diff HEAD`): the review step stages the files.
 - Pick the executor by cost and write it next to each node in `graph.md`. A node whose reading or iteration the main session will not need again runs in a subagent; its reading and reasoning stay there. A cheap node that needs the main session's context, such as an edit at known lines of one file, runs in the main session.
 - **Browser node:** a subagent that owns the chrome-devtools browser; subagents reach the MCP browser like the main session. It runs the browser checks of the baseline and every browser gate, and returns ledger rows `check | value | screenshot path`.
 - Each file has one writer node. Any other exclusive resource (the browser, a dev-server port) has one owner node at a time.
-- A subagent prompt carries the node spec, its input paths, its check, its write scope and a scratch folder `/tmp/<run>/<node>/` for downloads, packed compilers and tree copies; the run folder keeps only results. The subagent returns the output path, the verdict, and the evidence as command plus output.
+- A subagent prompt carries the node spec, its input paths, its check, its write scope and a scratch folder `/tmp/<run>/<node>/` for downloads, packed compilers and tree copies; the run folder keeps only results. The subagent returns the output path, the verdict, and the evidence as command plus output, and leaves no background task running.
+- A writer node's check includes the repo's own pre-commit gate (the command its hook or CI runs), so a tool the brief does not name still runs.
 
 ## Gates
 
@@ -70,6 +72,7 @@ All run files live in one run folder, by default `graph-<ticket key>/` beside th
 ## Permissions
 
 - Keep writes inside the scope. A prompt is not a boundary: where a stray write is costly, enforce the scope with permission rules or a sandbox.
+- A mechanical consequence of an approved change is in scope, wherever it lands: an import or variable the change leaves unused, a call site of a changed signature, a lint or format fix. Make it and log it in the ledger. Ask the user only for a product decision or a substantive write outside the scope.
 - Ask the user before publishing, sending or spending.
 - Before a risky merge, copy the affected files into `/tmp/<run>/backup/`: a copy inside the run folder rides into the user's commit.
 - If a required tool is missing, record the blocker in `progress.md` and finish the nodes that do not need it.
