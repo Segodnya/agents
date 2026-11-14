@@ -1,6 +1,6 @@
 ---
 name: review-staged
-description: "Read-only review of a git diff (staged / last commit / branch / worktree) on four axes — correctness & contracts, rules & smells, performance, deploy checklist — where every finding is proven by a verbatim quote and MR-settled ones are dropped. Not the built-in `/code-review`. Use on «ревью стейджа», `/review-staged`, or a request to audit a diff."
+description: "Read-only review of a git diff (staged / last commit / branch / worktree) on four axes — correctness & contracts, rules & smells, performance, deploy checklist — where every finding is proven by a verbatim quote and MR-settled ones are dropped. Not the built-in `/code-review`. Use when the user says «ревью стейджа», `/review-staged`, or asks to audit a diff."
 ---
 
 # review-staged

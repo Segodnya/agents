@@ -2,9 +2,8 @@
 name: mr-ready
 description: >
   Автономный цикл подготовки GitLab MR к ревью человеком: review-staged → audit-reply правит или
-  отвечает → повтор, пока находок не останется. Используй на `/mr-ready`, «подготовь MR к ревью»,
+  отвечает → повтор, пока находок не останется. Используй, когда просят `/mr-ready`, «подготовь MR к ревью»,
   «make the MR ready for review».
-trigger: /mr-ready
 ---
 
 # mr-ready

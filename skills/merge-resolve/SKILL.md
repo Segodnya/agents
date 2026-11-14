@@ -96,7 +96,7 @@ python3 <skill_dir>/scripts/check_merge_symbols.py
    ```
 2. **Структурная сверка ещё раз** — `python3 <skill_dir>/scripts/check_merge_symbols.py`: резолв сам мог уронить символ или оставить дубль.
 3. **Нет битых ссылок** — не взял вызов одной стороны без реализации другой: undefined-переменные, потерянные импорты. Главная ошибка после резолва.
-4. **Lint / type-check** — бинарём напрямую (`npx tsc --noEmit`, `npx eslint`), не через turbo/`pnpm`-таску: та тянет build.
+4. **Lint / type-check** — бинарём напрямую (`./node_modules/.bin/tsc --noEmit`, `./node_modules/.bin/eslint`: npx без локального typescript скачивает чужой пакет `tsc`), не через turbo/`pnpm`-таску: та тянет build.
 5. **Затронутые тесты прогони сам** (`jest <dir>`, `playwright test --grep`), а не только конфликтный файл.
 
 Не сошлось — вернись к плану и скажи, не замалчивай.
