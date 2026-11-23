@@ -3,14 +3,18 @@
 
 Ловит то, что не видно ни в маркерах, ни в tsc: авто-мерж вставляет вторую
 копию метода (вторая затирает первую), либо одна сторона переименовала метод,
-и удаление уехало в неконфликтную зону — символ пропал молча.
+и удаление уехало в неконфликтную зону — символ пропал молча. Ещё ловит
+задвоенные имена в импортах, экспортных списках, полях interface и
+деструктуризации — их tsc показывает только на полном прогоне.
 
 Читает: рабочую копию (вне конфликтных зон) + версии сторон из индекса.
 Ничего не изменяет: ни индекс, ни файлы.
 
-Usage: python3 scripts/check_merge_symbols.py
+Usage: python3 scripts/check_merge_symbols.py [путь ...] [--files список.txt ...]
+Без путей — все файлы мержа; после резолва передай резолвнутые и правленые.
 """
 
+import argparse
 import re
 import sys
 from collections import Counter
@@ -18,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from duplicates import new_duplicates  # noqa: E402
 from merge_history import (  # noqa: E402
     CODE_EXT, BlobReader, changed_between, fast_forward_side, git, ref_blob,
 )
@@ -55,8 +60,11 @@ KEYWORDS = {
 MARK_START, MARK_BASE, MARK_MID, MARK_END = '<<<<<<<', '|||||||', '=======', '>>>>>>>'
 
 
-def defs_in(lines, skip_conflicts):
-    """Имена определений. skip_conflicts=True — игнорировать всё между маркерами."""
+def without_markers(lines, skip_conflicts):
+    """Текст без строк-маркеров; skip_conflicts=True — и без всего между ними.
+
+    Номера строк сохраняются: убранная строка становится пустой.
+    """
     kept, inside = [], False
     for line in lines:
         s = line.lstrip()
@@ -66,7 +74,12 @@ def defs_in(lines, skip_conflicts):
             inside = False
         marker = s.startswith((MARK_START, MARK_BASE, MARK_MID, MARK_END))
         kept.append('\n' if marker or (inside and skip_conflicts) else line)
-    text = ''.join(kept)
+    return ''.join(kept)
+
+
+def defs_in(lines, skip_conflicts):
+    """Имена определений. skip_conflicts=True — игнорировать всё между маркерами."""
+    text = without_markers(lines, skip_conflicts)
 
     # Одна строка — одно определение: первый регекс из DEFS, совпавший на ней.
     by_line = {}
@@ -160,8 +173,23 @@ def removed_by(path, name, where, refs):
     return f'{other} {sha[:8]} «{subject}»'
 
 
+def requested_files(args):
+    """Файлы из аргументов: пути и списки `--files`. Пусто — скоуп мержа."""
+    files = list(args.paths)
+    for listing in args.files or []:
+        files += Path(listing).read_text().splitlines()
+    return [f for f in files if f.strip()]
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('paths', nargs='*', help='проверить только эти файлы')
+    parser.add_argument('--files', action='append',
+                        help='файл со списком путей, по одному в строке; можно несколько')
+    args = parser.parse_args()
+
     raw, sides, refs = scope()
+    raw = requested_files(args) or raw
     files = [f for f in dict.fromkeys(raw) if f.endswith(CODE_EXT)]
 
     if not files:
@@ -183,11 +211,14 @@ def main():
         present = set(defs_in(work, False))
         lost = {}
         side_max = Counter()
+        side_texts = []
         for slot, label in sides:
             side = blobs.read(f'{slot}{f}')
             if not side:
                 continue
-            side_defs = defs_in(side.decode('utf-8', errors='replace').splitlines(True), False)
+            side_text = side.decode('utf-8', errors='replace')
+            side_texts.append(side_text)
+            side_defs = defs_in(side_text.splitlines(True), False)
             side_max |= Counter(side_defs)
             # Пропажа: символ был на стороне, но в результате его нет нигде.
             for n in set(side_defs) - present:
@@ -197,8 +228,10 @@ def main():
         # это и есть неразрешённый конфликт. Опасен дубль, который авто-мерж
         # вставил в неконфликтную зону. Дубль, который уже был на одной из
         # сторон (фикстуры, перегрузки), мерж не вносил — его не показываем.
-        dups = [(n, c) for n, c in Counter(defs_in(work, True)).items()
+        dups = [(n, c, 'второе затирает первое') for n, c in Counter(defs_in(work, True)).items()
                 if c > 1 and c > side_max[n]]
+        dups += [(f'{kind} {name}', c, 'имя задвоено, на сторонах реже') for kind, name, c
+                 in new_duplicates(f, without_markers(work, True), *side_texts)]
 
         if dups or lost:
             findings.append((f, dups, lost))
@@ -223,9 +256,8 @@ def main():
 
         clean = False
         print(f'\n{f}')
-        for n, c in sorted(dups):
-            print(f'  ДУБЛЬ    {n} — {c} определения вне маркеров; '
-                  f'второе затирает первое')
+        for n, c, what in sorted(dups):
+            print(f'  ДУБЛЬ    {n} — {c} раза вне маркеров; {what}')
         for n, where in sorted(lost.items()):
             origin = origins.get((f, n))
             tail = f'; менял коммит {origin}' if origin else ''

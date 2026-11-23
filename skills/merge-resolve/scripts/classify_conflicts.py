@@ -3,14 +3,24 @@
 
 Классы:
 - take-theirs: версия ours есть в истории theirs — у ours нет своих правок;
-- take-ours: версия theirs есть в истории ours;
+- take-ours: версия theirs есть в истории ours. Если новая сторона сама файл
+  не правила и новее только через merge-коммит — manual;
+- squash-theirs / squash-ours: каждый собственный коммит одной стороны по файлу
+  лежит в ветке, которую другая сторона влила (обычно squash в GitLab) после
+  этого коммита. Версия первой стороны — старая копия той же работы;
 - realbase-clean: 3-way merge от последней версии файла, общей для обеих
-  историй, проходит без конфликтов; готовый черновик лежит в OUT/drafts/<path>;
+  историй, проходит без конфликтов и не задваивает имён; черновик лежит в
+  OUT/drafts/<path>;
+- both-deleted: файл удалили обе стороны (ренейм на обеих) — `git rm`;
 - manual: обе стороны правили одно место, нет общей версии (ренейм на одной
   стороне), delete/modify или бинарный файл. Черновик diff3 от реальной базы,
   если она есть, лежит там же. Файл, который трогал откат (`git revert`) в
   собственном диапазоне стороны, — всегда manual: черновик строится от версии
   до отката и принимает его, а блок ОТКАТЫ называет развилку.
+
+Класс take-*/squash-* без файла на оставляемой стороне — это `git rm`; сводка
+печатает их число. Причина по каждому ручному файлу — OUT/reasons.txt,
+собственные коммиты сторон, которых не принёс squash, — OUT/side-commits.txt.
 
 Виртуальная база `ort` при нескольких merge-base делает конфликтом весь файл,
 даже если одна сторона просто старее другой. Реальная база это снимает.
@@ -28,6 +38,7 @@ Usage: python3 scripts/classify_conflicts.py [--out DIR]
 import argparse
 import functools
 import os
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import re
 import subprocess
@@ -36,12 +47,11 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from duplicates import NAME, new_duplicates, spec_name  # noqa: E402
 from merge_history import (  # noqa: E402
     CODE_EXT, BlobReader, fast_forward_side, find_reverts, git, git_bytes, history_blobs,
-    stage_blob, theirs_ref,
+    merged_branches, side_commits, squash_covered, stage_blob, theirs_ref,
 )
-
-NAME = r'[A-Za-z_$][\w$]*'
 
 TS_EXPORT = re.compile(
     r'^[ \t]*export\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?'
@@ -72,12 +82,8 @@ def exported_names(path, text):
         return names
     names.update(TS_EXPORT.findall(text))
     for block in TS_EXPORT_LIST.findall(text):
-        for item in block.split(','):
-            item = re.sub(r'^\s*type\s+', '', item).strip()
-            if not item:
-                continue
-            names.add(re.split(r'\s+as\s+', item)[-1].strip())
-    return {n for n in names if re.fullmatch(NAME, n)}
+        names.update(n for n in (spec_name(item.strip()) for item in block.split(',')) if n)
+    return names
 
 
 def decode(data):
@@ -107,14 +113,68 @@ def merge_file(base, ours, theirs):
         return r.returncode, r.stdout
 
 
-def classify(path, ref, reverts):
+LAYOUTS = {
+    (1, 2): 'удалён в theirs, изменён в ours',
+    (1, 3): 'удалён в ours, изменён в theirs',
+    (2,): 'есть только в ours: theirs удалил или переименовал',
+    (3,): 'есть только в theirs: ours удалил или переименовал',
+}
+
+
+class Sides:
+    """Коммиты сторон по конфликтным файлам и что из них принесли squash-мержи.
+
+    ours_commits / theirs_commits — не-merge коммиты собственного диапазона
+    стороны по каждому файлу. ours_cover — коммиты theirs, которые принесли
+    ветки, влитые в ours; theirs_cover — наоборот.
+    """
+
+    def __init__(self, ref, files, reverts):
+        self.ours_commits = side_commits(f'{ref}..HEAD', files)
+        self.theirs_commits = side_commits(f'HEAD..{ref}', files)
+        by_side = {side: [r for r in reverts if r.side == side] for side in ('ours', 'theirs')}
+        self.theirs_cover = squash_covered(
+            merged_branches(f'HEAD..{ref}', by_side['theirs']), ref)
+        self.ours_cover = squash_covered(
+            merged_branches(f'{ref}..HEAD', by_side['ours']), 'HEAD')
+
+    def squash_side(self, path):
+        """Сторона, чьи squash-мержи уже несут все правки другой стороны в файле.
+
+        'theirs' — каждый собственный коммит ours по файлу лежит в ветке, которую
+        theirs влил после этого коммита: версия ours — старая копия той же работы.
+        """
+        ours = self.ours_commits.get(path, [])
+        theirs = self.theirs_commits.get(path, [])
+        by_theirs = bool(ours) and all(sha in self.theirs_cover for sha, _ in ours)
+        by_ours = bool(theirs) and all(sha in self.ours_cover for sha, _ in theirs)
+        if by_theirs == by_ours:
+            return None
+        return 'theirs' if by_theirs else 'ours'
+
+    def uncovered(self, path):
+        """Собственные коммиты сторон по файлу, которых не принёс squash другой стороны."""
+        return ([('ours', sha, s) for sha, s in self.ours_commits.get(path, [])
+                 if sha not in self.theirs_cover]
+                + [('theirs', sha, s) for sha, s in self.theirs_commits.get(path, [])
+                   if sha not in self.ours_cover])
+
+
+def classify(path, ref, reverts, sides):
     """Класс файла, причина и текст результата для поиска удалённых экспортов."""
     revert = reverts.get(path)
-    b2, b3 = stage_blob(2, path), stage_blob(3, path)
+    b1, b2, b3 = stage_blob(1, path), stage_blob(2, path), stage_blob(3, path)
+    squash = sides.squash_side(path)
+
     if not b2 or not b3:
-        reason = 'delete/modify или файл добавлен одной стороной'
+        layout = tuple(n for n, blob in ((1, b1), (2, b2), (3, b3)) if blob)
+        if layout == (1,):
+            return 'both-deleted', '', None, None
+        reason = LAYOUTS.get(layout, 'delete/modify')
         if revert:
-            reason += f'; {revert_note(revert)}'
+            return 'manual', f'{reason}; {revert_note(revert)}', None, None
+        if squash:
+            return f'squash-{squash}', '', None, None
         return 'manual', reason, None, None
 
     ours = git_bytes('cat-file', 'blob', b2)
@@ -132,11 +192,18 @@ def classify(path, ref, reverts):
                      f'{conflicts} конфликт(ов)')
         return 'manual', note, None, draft
 
+    if squash:
+        return f'squash-{squash}', '', theirs if squash == 'theirs' else ours, None
+
     side = fast_forward_side('HEAD', ref, path, b2, b3)
-    if side == 'theirs':
-        return 'take-theirs', '', theirs, None
-    if side == 'ours':
-        return 'take-ours', '', ours, None
+    if side:
+        # Новее та сторона, чья история прошла через версию другой. Если сама она
+        # файл не правила, новая версия пришла merge-коммитом — часто старой копией
+        # из другой ветки, а не доработкой.
+        own = sides.ours_commits if side == 'ours' else sides.theirs_commits
+        if not own.get(path):
+            return 'manual', f'{side} новее только через merge-коммиты', None, None
+        return f'take-{side}', '', theirs if side == 'theirs' else ours, None
 
     if is_binary(ours, theirs):
         return 'manual', 'бинарный файл или LFS-указатель', None, None
@@ -155,9 +222,26 @@ def classify(path, ref, reverts):
             break
 
     conflicts, draft, real_base = best
-    if conflicts == 0:
-        return 'realbase-clean', '', draft, draft
-    return 'manual', f'{conflicts} конфликт(ов) от реальной базы {real_base[:8]}', None, draft
+    if conflicts:
+        return 'manual', f'{conflicts} конфликт(ов) от реальной базы {real_base[:8]}', None, draft
+    dups = new_duplicates(path, decode(draft), decode(ours), decode(theirs))
+    if dups:
+        names = ', '.join(f'{kind} {name}' for kind, name, _ in dups)
+        return 'manual', f'черновик от реальной базы задваивает имена «{names}»', None, draft
+    return 'realbase-clean', '', draft, draft
+
+
+CLASSES = ('take-theirs', 'take-ours', 'squash-theirs', 'squash-ours', 'realbase-clean',
+           'both-deleted', 'manual')
+# Стадия, которую класс оставляет. Её нет в индексе — сторона удалила файл: `git rm`.
+KEEP_STAGE = {'take-theirs': 3, 'squash-theirs': 3, 'take-ours': 2, 'squash-ours': 2}
+
+
+def reason_kind(reason):
+    """Причина без чисел, хешей и «…»-подробностей (темы коммитов, имена) — ключ для сводки."""
+    reason = re.sub(r'«[^»]*»', '«…»', reason)
+    reason = re.sub(r'\b[0-9a-f]{7,40}\b', '<sha>', reason)
+    return re.sub(r'\d+', 'N', reason)
 
 
 def revert_note(revert):
@@ -300,7 +384,7 @@ def main():
     out = args.out or tempfile.mkdtemp(prefix='merge-resolve-')
     Path(out).mkdir(parents=True, exist_ok=True)
 
-    groups = {'take-theirs': [], 'take-ours': [], 'realbase-clean': [], 'manual': []}
+    groups = {cls: [] for cls in CLASSES}
     reasons = {}
     results = []
     revert_list = find_reverts(ref)
@@ -309,10 +393,11 @@ def main():
     for revert in revert_list:
         for path in revert.paths:
             reverts.setdefault(path, revert)
+    sides = Sides(ref, files, revert_list)
     # История файла в большом репо — до секунды на сторону; git-процессы
     # независимы, поэтому файлы идут параллельно.
     with ThreadPoolExecutor(max_workers=8) as pool:
-        classified = list(pool.map(lambda p: classify(p, ref, reverts), files))
+        classified = list(pool.map(lambda p: classify(p, ref, reverts, sides), files))
 
     for path, (cls, reason, result, draft) in zip(files, classified):
         groups[cls].append(path)
@@ -325,11 +410,29 @@ def main():
 
     for cls, paths in groups.items():
         Path(out, f'{cls}.txt').write_text(''.join(f'{p}\n' for p in paths))
+    Path(out, 'reasons.txt').write_text(
+        ''.join(f'{p}\t{reasons[p]}\n' for p in groups['manual']))
+    Path(out, 'side-commits.txt').write_text(''.join(
+        f'{p}\t{side}\t{sha[:10]} {subject}\n'
+        for p in groups['manual'] for side, sha, subject in sides.uncovered(p)))
 
     print(f'ОПЕРАЦИЯ: theirs = {ref}, ours = HEAD (при rebase стороны инвертированы)')
     print(f'КЛАССИФИКАЦИЯ ({len(files)} файлов). Списки и черновики: {out}')
     for cls, paths in groups.items():
-        print(f'  {cls:<14} {len(paths):4}  {out}/{cls}.txt')
+        removed = 0
+        if cls == 'both-deleted':
+            removed = len(paths)
+        elif cls in KEEP_STAGE:
+            removed = sum(1 for p in paths if not stage_blob(KEEP_STAGE[cls], p))
+        tail = f'  (git rm: {removed})' if removed else ''
+        print(f'  {cls:<15} {len(paths):4}  {cls}.txt{tail}')
+
+    if groups['manual']:
+        kinds = Counter(reason_kind(reasons[p]) for p in groups['manual'])
+        print('\nРУЧНЫЕ по причинам (по файлу — reasons.txt; коммиты сторон вне squash — '
+              'side-commits.txt):')
+        for kind, count in kinds.most_common():
+            print(f'  {count:4}  {kind}')
 
     conflicted = set(files)
     shown = [r for r in revert_list if conflicted.intersection(r.paths)]
@@ -339,11 +442,6 @@ def main():
         for r in shown:
             print(f'  {r.side} {r.sha[:8]} «{r.subject}» — файлов: {len(r.paths)}, '
                   f'в конфликте: {len(conflicted.intersection(r.paths))}')
-
-    if groups['manual']:
-        print('\nРУЧНЫЕ (черновик diff3 от реальной базы — в drafts/, если база есть):')
-        for path in groups['manual']:
-            print(f'  {path} — {reasons[path]}')
 
     # Авто-слитые файлы тоже меняют контракт: git убрал реэкспорт из индекса
     # одной стороны, а потребитель другой стороны его импортирует.

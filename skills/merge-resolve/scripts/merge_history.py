@@ -6,12 +6,15 @@
 import functools
 import re
 from collections import namedtuple
+from concurrent.futures import ThreadPoolExecutor
 import subprocess
 
 CODE_EXT = ('.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.php', '.vue')
 HEX40 = re.compile(r'\b[0-9a-f]{40}\b')
 NULL_BLOB = '0' * 40
 OBJECT_TYPES = {b'blob', b'tree', b'commit', b'tag'}
+PATHS_PER_CALL = 500
+MERGE_SUBJECT = re.compile(r"^Merge (?:remote-tracking )?branch '([^']+)'")
 
 
 class BlobReader:
@@ -48,8 +51,8 @@ def changed_between(rev_a, rev_b):
     return set(git(*args).splitlines())
 
 
-def git(*args):
-    r = subprocess.run(('git',) + args, capture_output=True, text=True)
+def git(*args, stdin=None):
+    r = subprocess.run(('git',) + args, capture_output=True, text=True, input=stdin)
     return r.stdout if r.returncode == 0 else ''
 
 
@@ -67,6 +70,26 @@ def theirs_ref():
         if git('rev-parse', '--verify', '-q', ref).strip():
             return ref
     return None
+
+
+def merge_sides():
+    """(ours, theirs, result) для проверок после резолва; None — мержа нет.
+
+    Мерж в процессе: HEAD, ref операции и result=None — рабочая копия.
+    Мерж закоммичен: родители HEAD и сам HEAD.
+    """
+    ref = theirs_ref()
+    if ref:
+        return 'HEAD', ref, None
+    parents = git('rev-parse', 'HEAD^@').split()
+    if len(parents) >= 2:
+        return parents[0], parents[1], 'HEAD'
+    return None
+
+
+def tree_args(result):
+    """Ревизия результата для `git grep` / `git diff`: рабочая копия — без аргумента."""
+    return [] if result is None else [result]
 
 
 def stage_blob(stage, path):
@@ -133,6 +156,81 @@ def fast_forward_side(ours_ref, theirs_ref_name, path, ours_blob, theirs_blob):
     side, blob, own, other = (('theirs', ours_blob, ours_hist, theirs_hist) if ours_in_theirs
                               else ('ours', theirs_blob, theirs_hist, ours_hist))
     return None if came_back(blob, own, other) else side
+
+
+def side_commits(rng, paths):
+    """Не-merge коммиты диапазона по каждому пути: {path: [(sha, subject)]}, новые первыми.
+
+    Один `git log` на пачку путей: процесс на файл в большом репо стоит секунду.
+    Без `--full-history`: упрощение истории выкидывает боковые ветки, чьи правки
+    не дошли до версии стороны, — их коммиты в её содержимое ничего не внесли.
+    """
+    found = {}
+    for i in range(0, len(paths), PATHS_PER_CALL):
+        out = git('log', '--no-merges', '--no-renames', '--name-only',
+                  '--format=%x00%H%x09%s', rng, '--', *paths[i:i + PATHS_PER_CALL])
+        for entry in out.split('\0')[1:]:
+            header, *touched = [line for line in entry.splitlines() if line]
+            sha, _, subject = header.partition('\t')
+            for path in touched:
+                found.setdefault(path, []).append((sha, subject))
+    return found
+
+
+Squash = namedtuple('Squash', 'branch merged_at merged')
+
+
+def merged_branches(rng, reverts):
+    """Мержи веток в диапазоне: ветка, время последнего мержа, влитый коммит (второй родитель).
+
+    Мерж, который потом откатили (`Revert "Merge branch 'X' …"`), ветку не приносит.
+    """
+    reverted = {m.group(1) for r in reverts
+                for m in [MERGE_SUBJECT.match(r.subject.removeprefix('Revert "'))] if m}
+    found = {}
+    for line in git('log', '--merges', '--format=%ct%x09%P%x09%s', rng).splitlines():
+        ct, parents, subject = line.split('\t', 2)
+        m = MERGE_SUBJECT.match(subject)
+        if m and m.group(1) not in reverted:
+            found.setdefault(m.group(1), Squash(m.group(1), int(ct), parents.split()[1]))
+    return list(found.values())
+
+
+def branch_tip(name):
+    for ref in (f'refs/remotes/origin/{name}', f'refs/heads/{name}', f'refs/remotes/{name}'):
+        sha = git('rev-parse', '--verify', '-q', ref).strip()
+        if sha:
+            return sha
+    return None
+
+
+def squash_covered(squashes, side_ref):
+    """Коммиты squash-влитых веток, которых нет в истории side_ref: {sha: ветка}.
+
+    Squash: GitLab вливает один новый коммит без истории ветки, поэтому
+    влитый коммит — не предок ветки. У обычного мержа влитый коммит — сама
+    ветка на тот момент; её коммиты уже в истории стороны, а более новые
+    коммиты мерж не видел. Такой мерж не покрывает ничего.
+
+    Коммит squash-ветки считается принесённым, если он сделан не позже мержа.
+    """
+    def one(squash):
+        tip = branch_tip(squash.branch)
+        if not tip or len(git('rev-list', '--parents', '-n1', squash.merged).split()) != 2:
+            return []
+        if subprocess.run(['git', 'merge-base', '--is-ancestor', squash.merged, tip]).returncode == 0:
+            return []
+        out = git('log', '--no-merges', '--format=%H%x09%ct', tip, '--not', side_ref)
+        return [(sha, squash.branch) for sha, _, ct in
+                (line.partition('\t') for line in out.splitlines())
+                if int(ct) <= squash.merged_at]
+
+    covered = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for pairs in pool.map(one, squashes):
+            for sha, branch in pairs:
+                covered.setdefault(sha, branch)
+    return covered
 
 
 Revert = namedtuple('Revert', 'side sha subject paths')
