@@ -34,7 +34,8 @@ def expand_braces(glob):
 def glob_to_re(glob):
     # `/skills/**` и `skills/` — обычная запись в правилах, `git diff --name-only`
     # отдаёт пути без ведущего слэша и каталоги не отдаёт вовсе.
-    glob = glob.lstrip("/")
+    # `./**/*.ts` — тоже обычная запись: ведущий `./` в `--name-only` не бывает.
+    glob = re.sub(r"^(?:\./)+", "", glob).lstrip("/")
     if glob.endswith("/"):
         glob += "**"
     out, i = "", 0

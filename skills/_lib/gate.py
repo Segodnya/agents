@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mechanical gate over the agents' candidates (review-staged, bugty-hunter). Run from the repo root.
 
-    gate.py DIR --axes A B C D --require-coverage                # review-staged
+    gate.py DIR --axes A B C D E --require-coverage              # review-staged (D without --no-spec, E when the diff has tests)
     gate.py DIR --axes state lifecycle contract --map DIR/map.md --require-repro   # bugty-hunter
 
 Reads DIR/axis-<name>.json, DIR/files.txt (the perimeter) and, when present, DIR/checklist.md,

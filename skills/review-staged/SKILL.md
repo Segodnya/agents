@@ -1,6 +1,6 @@
 ---
 name: review-staged
-description: "Read-only review of a git diff (staged / last commit / branch / worktree) on four axes — correctness & contracts, rules & smells, performance, deploy checklist — where every finding is proven by a verbatim quote and MR-settled ones are dropped. Not the built-in `/code-review`. Use when the user says «ревью стейджа», `/review-staged`, or asks to audit a diff."
+description: "Read-only review of a git diff (staged / last commit / branch / worktree) on up to five axes — correctness & contracts, rules & smells, performance, deploy checklist, test value — where every finding is proven by a verbatim quote and MR-settled ones are dropped. Not the built-in `/code-review`. Use when the user says «ревью стейджа», `/review-staged`, or asks to audit a diff."
 ---
 
 # review-staged
@@ -62,11 +62,11 @@ Run from the repo root: `python3 "SKILL_DIR/../mr-ready/scripts/run_checks.py" R
 
 ## 2. Review
 
-Spawn four `Agent`s in one message (three under `--no-spec`), each `model: "sonnet"`, `effort: "medium"`. Prompt:
+Spawn one `Agent` per axis in one message — A, B, C; D unless `--no-spec`; E only when `RS_DIR/files.txt` holds a test file (`*.test.*`, `*.spec.*`, `__tests__/`, `tests/`, `test_*.py`, `*Test.php`) — each `model: "sonnet"`, `effort: "medium"`. `<axes>` below is the letters you spawned. Prompt:
 
 > `RS_DIR = <literal>`. Axis `<X>`. First `cat "<SKILL_DIR>/prelude.md"` and follow it. Checklist: `RS_DIR/checklist.md` (omit under `--no-spec`). Checks already run: <cmd → exit; …>. Findings language: <the MR's / the user's>. <Среда line, if the caller gave one.> <Axis charter below.> <Caller's extra focus, if any — as an addition to the full axis, never instead of it.>
 
-B also gets the literal paths `RS_DIR/rules.md` and `RS_DIR/rule-files.txt`. Threads and previous reports never go into a prompt — reviewers judge the code, step 4 judges the discussion.
+B also gets the literal paths `RS_DIR/rules.md` and `RS_DIR/rule-files.txt`; E gets `RS_DIR/rules.md`. Threads and previous reports never go into a prompt — reviewers judge the code, step 4 judges the discussion.
 
 **A · Correctness & contracts** — null/undefined, off-by-one, races, unhandled rejections, type holes; security at trust boundaries; empty/huge/odd inputs; a changed signature or payload with a caller not updated (quote both); a key or name that must match another artifact (i18n catalog, config, route, schema, feature flag) changed on one side only, or hard-coded where the repo looks it up; tests that assert less than they claim. Config and docs files of the diff are contracts too (Dockerfile, CI, compose, env samples, README): an env name, version pin, default or documented behaviour that disagrees with the code or with another of them. A removed or loosened guard (null / empty check, early return, `if` before a call, `try`/`catch`, a default) is a candidate: name the input it used to stop and what that input does now; only code that makes the input impossible, quoted, refutes it. A hunk that changes the behaviour of a piece of logic (a reset, a guard, a mapping, a format) — grep the touched files and their module folder for other copies of that logic; a copy left on the old behaviour is a finding at the copy, both quoted: a fix applied to one copy of two comes back next round.
 
@@ -76,12 +76,14 @@ B also gets the literal paths `RS_DIR/rules.md` and `RS_DIR/rule-files.txt`. Thr
 
 **D · Spec** — checklist vs diff, three ways, each finding's `kind` naming its way: `absent` — promised but absent (P0 if «fixed», P1 if «touched»); `contradicted` — the diff does otherwise than the item says (priority as absent: a defect in the code, not a checklist edit); `unpromised` — in the diff but not promised: a behaviour change or a runtime step (restart, migration, cache purge) the tester won't know to check (P1). Done when every visible change in the diff (class, token, size, colour, text, markup element) and every runtime step maps to a checklist item or to one finding — one exhaustive pass, so the next round finds nothing new. An absence is quoted at the place it should be. With `--design`: `Read` every screenshot; each element the diff renders (control type, icon, colour, size, state) that differs from the mockup is a P1 finding of `kind: mockup` quoted at the code line, the screenshot named in the claim.
 
-After the spawn message **end your turn with one plain line `жду оси: A B C D`** (this line overrides any rule against status-only turns) — not `SubagentHandback`, which would end your run with no report. Each reviewer's report wakes you: run the gate; exit 2 (`waiting_for`) → end the turn with `жду оси: <missing>`, nothing else.
+**E · Test value** — read every added or changed test; for each, two questions: what fails if the behaviour breaks, and what fails on a harmless refactor? A finding, quoted at the assert: a tautology — the assert checks what the test's own mock or setup put there, so the code under test can't fail it. Trace each assert to its source: if the value was written by a `mockImplementation`, a `setState` in the test body, a fixture or an argument the test passed in, and the code under test only passes it through or does not touch it, the assert cannot fail. Typical shape: a mock sets the state (`mockRunScript.mockImplementation(() => store.setState({ x }))`), the code runs, then `expect(store.getState().x).toBe(x)`. The same goes for an assert that a mock returned what it was configured to return, and for a second assert in a test whose first assert already covers the behaviour while the second reads only mock-written state; the wrong layer — the logic lives in a helper, but N consumer tests cover it and the helper has none (name the helper); duplicates — several tests of one branch differing only in data that never reaches it; brittle asserts — log or error text, copy literals, call order, internals of a mocked module where only behaviour matters; a mock of the very module the test is about, so the mock is what runs; a test that pins a temporary workaround (`TODO`, hotfix) without saying so; a changed branch with logic (a substitution, a guard, a mapping) that no test runs against real code — only where the diff already touches that file's tests. Name what the assert really checks; for the wrong layer, where the logic is covered; "this test isn't needed" without that is not a finding. Test rules from `RS_DIR/rules.md` (a `testing` rule file) apply too: a violated rule is a finding quoted from it. All P2: a test has no entry chain, and the gate caps P0/P1 without one. `files_read` lists every path of `files.txt`, as on any axis.
+
+After the spawn message **end your turn with one plain line `жду оси: <axes>`** (this line overrides any rule against status-only turns) — not `SubagentHandback`, which would end your run with no report. Each reviewer's report wakes you: run the gate; exit 2 (`waiting_for`) → end the turn with `жду оси: <missing>`, nothing else.
 
 ## 3. Gate
 
 ```bash
-python3 "SKILL_DIR/../_lib/gate.py" RS_DIR --axes A B C D --require-coverage     # A B C under --no-spec; run from the repo root
+python3 "SKILL_DIR/../_lib/gate.py" RS_DIR --axes <axes> --require-coverage     # the letters you spawned, e.g. A B C D E; run from the repo root
 ```
 
 Your only judgment: a P0/P1 whose entry chain names a guard — open the guard; it makes the line unreachable → P2 or drop, note it on `_Прочее:_`. `rules_missing` non-empty → `SendMessage` B once with those paths; `files_missing` non-empty → `SendMessage` each listed axis once with its paths. Then rerun the gate. `other` → `_Прочее:_`.
