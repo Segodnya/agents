@@ -51,11 +51,11 @@ with tempfile.TemporaryDirectory() as tmp:
     try:
         assert not mr_post.is_checkout_of("core/core_backend"), "не git-репо — не чекаут"
         subprocess.run(["git", "init", "-q"], check=True)
-        subprocess.run(["git", "remote", "add", "origin", "git@git.amocrm.ru:core/core_backend.git"], check=True)
+        subprocess.run(["git", "remote", "add", "origin", "git@git.example.com:core/core_backend.git"], check=True)
         assert mr_post.is_checkout_of("core/core_backend"), "ssh-remote проекта MR"
         assert not mr_post.is_checkout_of("core/core_back"), "префикс пути — другой проект"
         assert not mr_post.is_checkout_of("core_backend"), "без группы — другой проект"
-        subprocess.run(["git", "remote", "set-url", "origin", "https://git.amocrm.ru/core/core_backend"], check=True)
+        subprocess.run(["git", "remote", "set-url", "origin", "https://git.example.com/core/core_backend"], check=True)
         assert mr_post.is_checkout_of("core/core_backend"), "https-remote без .git"
     finally:
         os.chdir(here)

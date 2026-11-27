@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from fetch_timing import (  # noqa: E402
-    APPROVAL_RE, calendar_hours, count_waves, parse_ts, pick_milestones, segment, work_hours,
+    APPROVAL_RE, calendar_hours, count_waves, match_fix, parse_ts, pick_milestones, segment, work_hours,
 )
 
 MSK = timezone(timedelta(hours=3))
@@ -54,5 +54,15 @@ assert pick_milestones([1, 5], [6], 9) == (5, 6)
 assert pick_milestones([1, 8], [6], 9) == (1, 6), "аппрув после метки не берём"
 assert pick_milestones([1], [6, 20], 9) == (1, 6), "метку позже мержа не берём"
 assert pick_milestones([1], [], 9) == (1, None), "без метки отгрузки отрезки не считаются"
+
+# замечание к строке закрывает только коммит, который трогает её файл (кейс 4655!211)
+commits = [(2, {"other.go"}), (5, {"crud.go"})]
+assert match_fix(1, "crud.go", commits) == {"fixed": True, "followed_by_commit": True, "fix_at": 5}
+assert match_fix(1, "slots.go", commits) == {"fixed": False, "followed_by_commit": True, "fix_at": None}, \
+    "коммит в другой файл — не исправление"
+assert match_fix(6, "crud.go", commits) == {"fixed": False, "followed_by_commit": False, "fix_at": None}
+# у общего замечания файла нет: исправлено ли — неизвестно, время до первого коммита
+assert match_fix(1, None, commits) == {"fixed": None, "followed_by_commit": True, "fix_at": 2}
+assert match_fix(6, None, commits) == {"fixed": None, "followed_by_commit": False, "fix_at": None}
 
 print("ok")

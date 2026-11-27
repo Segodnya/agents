@@ -68,18 +68,20 @@ def get(host, endpoint, fields=None):
     return result
 
 
-def paginate(host, endpoint, soft=False):
+def paginate(host, endpoint, soft=False, until_empty=False):
     """All pages of a list endpoint; a failed page exits — a silently cut list looks complete.
-    soft: a failed page is logged and ends the list with what was fetched."""
+    soft: a failed page is logged and ends the list with what was fetched.
+    until_empty: only an empty page ends the list — the events API trims pages by access rights,
+    so a short page there is not the last one."""
     out, page = [], 1
     sep = "&" if "?" in endpoint else "?"
     while True:
         url = f"{endpoint}{sep}per_page=100&page={page}"
         chunk = get(host, url) if soft else api(host, "GET", url)
-        if chunk is None:
+        if not chunk:
             return out
         out += chunk
-        if len(chunk) < 100:
+        if len(chunk) < 100 and not until_empty:
             return out
         page += 1
 

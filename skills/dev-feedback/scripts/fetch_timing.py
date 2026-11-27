@@ -91,6 +91,19 @@ def count_waves(events):
     return waves
 
 
+def match_fix(comment_at, path, commits):
+    """commits — отсортированные (at, paths) правки разработчика.
+    Замечание к строке исправлено, только если следующий коммит трогает её файл:
+    любой коммит после ноты — ещё не ответ на неё. У общего замечания файла нет,
+    поэтому fixed=None, а время считаем до первого коммита."""
+    later = [(at, paths) for at, paths in commits if at > comment_at]
+    followed = later[0][0] if later else None
+    if not path:
+        return {"fixed": None, "followed_by_commit": followed is not None, "fix_at": followed}
+    fix_at = next((at for at, paths in later if path in paths), None)
+    return {"fixed": fix_at is not None, "followed_by_commit": followed is not None, "fix_at": fix_at}
+
+
 def pick_milestones(approvals, marks, merged):
     """Отсортированные аппрувы и метки → (последний аппрув до метки, последняя метка до мержа)."""
     deploy_at = next((t for t in reversed(marks) if not merged or t <= merged), None)
@@ -134,7 +147,9 @@ def analyze_mr(mr, username, tokens, hostname, tz, now):
             approvals_at.append(ts)
             continue
         reviewers.add(author)
-        comments.append({"at": ts, "author": author, "body": body[:160]})
+        position = note.get("position") or {}
+        path = position.get("new_path") or position.get("old_path") or None
+        comments.append({"at": ts, "author": author, "body": body[:160], "path": path})
     comments.sort(key=lambda c: c["at"])
     approvals_at.sort()
     deploy_marks.sort()
@@ -150,23 +165,40 @@ def analyze_mr(mr, username, tokens, hostname, tz, now):
     mine = [c for c in commits if commit_is_mine(c, tokens)]
     all_commits = sorted(t for t in (parse_ts(c.get("committed_date"), tz) for c in mine) if t)
     # мерж мастера в ветку — не ответ на замечание; для реакции и волн берём только правки
-    my_commits = sorted(
-        t for t in (parse_ts(c.get("committed_date"), tz) for c in mine if len(c.get("parent_ids") or []) < 2)
-        if t
-    )
+    fix_commits = []
+    for c in mine:
+        t = parse_ts(c.get("committed_date"), tz)
+        if t and len(c.get("parent_ids") or []) < 2:
+            fix_commits.append((t, c["id"]))
+    fix_commits.sort()
+    my_commits = [t for t, _ in fix_commits]
     # rebase переписывает committed_date: расхождение с authored_date помечаем, а не молчим
     rebased = sum(1 for c in mine if c.get("committed_date", "")[:16] != c.get("authored_date", "")[:16])
 
     waves = count_waves([(c["at"], "comment") for c in comments] + [(t, "commit") for t in my_commits])
 
+    # файлы коммита нужны только правкам после первого замечания к строке
+    first_line_note = min((c["at"] for c in comments if c["path"]), default=None)
+
+    def commit_paths(at, sha):
+        if not first_line_note or at <= first_line_note:
+            return set()
+        diff = paginate(hostname, f"projects/{pid}/repository/commits/{sha}/diff", soft=True)
+        return {p for d in diff for p in (d.get("new_path"), d.get("old_path")) if p}
+
+    commit_files = [(at, commit_paths(at, sha)) for at, sha in fix_commits]
+
     reactions = []
     for comment in comments:
-        fix = next((t for t in my_commits if t > comment["at"]), None)
+        match = match_fix(comment["at"], comment["path"], commit_files)
+        fix = match["fix_at"]
         reactions.append({
             "author": comment["author"],
             "at": comment["at"].isoformat(),
             "body": comment["body"],
-            "fixed": fix is not None,
+            "path": comment["path"],
+            "fixed": match["fixed"],
+            "followed_by_commit": match["followed_by_commit"],
             "calendar_h": calendar_hours(comment["at"], fix) if fix else None,
             "work_h": work_hours(comment["at"], fix) if fix else None,
         })
@@ -248,7 +280,10 @@ def aggregate(rows):
     closed_rows = [r for r in own if r["state"] == "closed"]
     open_rows = [r for r in own if r["state"] == "opened"]
     reactions = [x for r in own for x in r["reactions"]]
-    fixed = [x for x in reactions if x["fixed"]]
+    line_notes = [x for x in reactions if x["fixed"] is not None]
+    general = [x for x in reactions if x["fixed"] is None]
+    # скорость реакции: до правки файла замечания или, у общего замечания, до первого коммита
+    answered = [x for x in reactions if x["work_h"] is not None]
     comment_counts = [r["comments_count"] for r in own]
     waves = [r["waves"] for r in own]
     lead_cal = [r["lead_calendar_h"] for r in merged_rows if r["lead_calendar_h"]]
@@ -284,7 +319,7 @@ def aggregate(rows):
             # заапрувлен, но ещё не смержен — работа сделана и ждёт поезда
             "approved_waiting": sum(1 for r in open_rows if r["approved_at"]),
             "with_unanswered_comments": sum(
-                1 for r in open_rows if any(not x["fixed"] for x in r["reactions"])
+                1 for r in open_rows if any(x["fixed"] is False for x in r["reactions"])
             ),
             "age_work_median": median([r["age_work_h"] for r in open_rows if r["age_work_h"]]),
             "age_work_max": max([r["age_work_h"] for r in open_rows if r["age_work_h"]], default=None),
@@ -333,13 +368,16 @@ def aggregate(rows):
         },
         "reaction_h": {
             "n_comments": len(reactions),
-            "n_with_fix": len(fixed),
-            "n_without_fix": len(reactions) - len(fixed),
-            "calendar_median": median([x["calendar_h"] for x in fixed]),
-            "work_median": median([x["work_h"] for x in fixed]),
+            "n_line_comments": len(line_notes),
+            "n_with_fix": sum(1 for x in line_notes if x["fixed"]),
+            "n_without_fix": sum(1 for x in line_notes if not x["fixed"]),
+            "n_general_comments": len(general),
+            "n_general_followed_by_commit": sum(1 for x in general if x["followed_by_commit"]),
+            "calendar_median": median([x["calendar_h"] for x in answered]),
+            "work_median": median([x["work_h"] for x in answered]),
             "work_p90": (
-                round(statistics.quantiles([x["work_h"] for x in fixed], n=10)[-1], 1)
-                if len(fixed) >= 10 else None
+                round(statistics.quantiles([x["work_h"] for x in answered], n=10)[-1], 1)
+                if len(answered) >= 10 else None
             ),
         },
         "waves": {
